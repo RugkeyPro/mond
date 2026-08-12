@@ -69,6 +69,18 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink {
+                        FileBrowserHomeView()
+                    } label: {
+                        Label("File Browser", systemImage: "folder")
+                    }
+                } header: {
+                    Label("Files", systemImage: "internaldrive")
+                } footer: {
+                    Text("Browse mond's container or open the read-only /private/var view on supported iOS builds.")
+                }
+
                 if !mg_valid || mg_empty {
                     Section {
                         if mg_empty {
@@ -322,7 +334,17 @@ struct ContentView: View {
             let cache_extra = mg_dict_now["CacheExtra"] as? NSMutableDictionary ?? NSMutableDictionary()
             let artwork = cache_extra["oPeik/9e8lQWMszEjbPzng"] as? NSMutableDictionary ?? NSMutableDictionary()
             
-            subtype = artwork["ArtworkDeviceSubType"] as? Int ?? og_subtype // fallback
+            let current_subtype = artwork["ArtworkDeviceSubType"] as? Int ?? og_subtype
+            let subtype_tags: [Int: String] = [
+                0: "no_dynamic_island",
+                2436: "14p",
+                2796: "14pm",
+                2976: "15pm",
+                2622: "16p",
+                2868: "16pm",
+                2736: "air",
+            ]
+            selected_st = current_subtype == og_subtype ? "og" : (subtype_tags[current_subtype] ?? "og")
             mg_devicename = artwork["ArtworkDeviceProductDescription"] as? String ?? og_devicename
             
             // assume it's been changed

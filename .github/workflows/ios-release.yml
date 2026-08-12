@@ -21,12 +21,10 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: install xcpretty
-        run: sudo gem install xcpretty
-
       - name: build
         run: |
           set -euo pipefail
+          xcodebuild -version
           xcodebuild \
             -project mond.xcodeproj \
             -scheme mond \
@@ -35,14 +33,33 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            build | xcpretty
+            CODE_SIGNING_REQUIRED=NO \
+            build | tee build.log
 
           rm -rf Payload mond.ipa
           mkdir -p Payload
           APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          test -d "$APP_PATH"
           cp -R "$APP_PATH" Payload/
           ditto -c -k --keepParent Payload mond.ipa
           rm -rf Payload
+
+      - name: verify ipa
+        run: |
+          set -euo pipefail
+          unzip -t mond.ipa
+          unzip -Z1 mond.ipa | grep -Eq '^Payload/[^/]+\.app/[^/]+$'
+          shasum -a 256 mond.ipa | tee mond.ipa.sha256
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mond-var-browser-unsigned
+          path: |
+            mond.ipa
+            mond.ipa.sha256
+          if-no-files-found: error
 
       - name: release
         env:
@@ -52,7 +69,7 @@ jobs:
           if gh release view latest >/dev/null 2>&1; then
             gh release delete latest --yes --cleanup-tag
           fi
-          gh release create latest mond.ipa \
+          gh release create latest mond.ipa mond.ipa.sha256 \
             --target "${GITHUB_SHA}" \
             --title "Latest" \
             --notes "Automated build from ${GITHUB_SHA}"

@@ -11,11 +11,17 @@
 > [!WARNING]  
 > Some of the tweaks have the potential to brick your device! Use at your own risk.
 
+**Included in this build:**<br>
+&#45; Editable browser for mond's Documents, Library and temporary directories<br>
+&#45; Read-only `/private/var` browser using bad_query on supported iOS builds<br>
+&#45; Files/iTunes document sharing for the Documents directory<br>
+
 **Planned:**<br>
-&#45; HouseArrest file browser (iOS 18 - 27?)
 &#45; Pocket Poster
 
 **Known Issues:**<br>
+&#45; `/private/var` access only works when bad_query succeeds on a supported iOS build<br>
+&#45; System paths are intentionally read-only to reduce data-loss and bootloop risk<br>
 &#45; Tweaks may disappear on reboot<br>
 &#45; Apple Intelligence activation is broken<br>
 &#45; Disable Region restrictions may be broken on some versions/devices<br>
