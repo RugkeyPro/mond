@@ -134,6 +134,12 @@ final class FileBrowserModel: ObservableObject {
             allowsManagedWrites: true
         ),
         SystemTarget(
+            title: "MDM Configuration Profiles",
+            url: URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true),
+            queryPath: TweakPaths.mdm_profiles_dir,
+            allowsManagedWrites: true
+        ),
+        SystemTarget(
             title: "System Data Containers",
             url: URL(fileURLWithPath: "/private/var/containers/Data/System", isDirectory: true),
             queryPath: "/private/var/containers/Data/System/",

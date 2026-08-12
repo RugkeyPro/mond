@@ -81,6 +81,24 @@ struct ContentView: View {
                     Text("Browse mond's container or verify precise /private/var paths; managed writes require an explicit per-target check.")
                 }
 
+                Section {
+                    NavigationLink {
+                        FileBrowserView(root: BrowserRoot(
+                            title: "MDM Configuration Profiles",
+                            subtitle: "MDM profile storage used by Apple Business/School Manager",
+                            icon: "shield.lefthalf.filled",
+                            url: URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true),
+                            mode: .systemManaged
+                        ))
+                    } label: {
+                        Label("MDM Profiles", systemImage: "shield.lefthalf.filled")
+                    }
+                } header: {
+                    Label("MDM Management", systemImage: "lock.shield")
+                } footer: {
+                    Text("Browse and manage MDM Configuration Profiles. Unlock writes and delete profiles to remove MDM enrollment. Safety backups are created before deletion.")
+                }
+
                 if !mg_valid || mg_empty {
                     Section {
                         if mg_empty {

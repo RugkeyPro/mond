@@ -55,7 +55,7 @@ jobs:
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mond-var-browser-unsigned
+          name: mond-mdm-delete-v1.6-build7-unsigned
           path: |
             mond.ipa
             mond.ipa.sha256
