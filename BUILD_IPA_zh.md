@@ -3,8 +3,9 @@
 ## 当前功能
 
 - `Documents`、`Library`、`tmp`：可浏览、新建文件夹、新建空文件、重命名、删除和分享。
-- `/private/var`：不再直接请求根目录，而是对精确路径调用 `bad_query`；授权后可浏览，写权限经验证并由用户主动启用后可新建、重命名和删除普通文件。
-- 系统普通文件在重命名或删除前自动备份到 `Documents/SystemFileBackups`；系统目录和 `com.apple.MobileGestalt.plist` 禁止在浏览器中重命名或删除。
+- `/private/var`：不再直接请求根目录，而是对精确路径调用 `bad_query`；授权后可浏览。点击锁按钮后，程序会在当前目录执行可回滚的“创建—读取—重命名—原子替换—删除”探针，全部成功才开放写操作。
+- 内置编辑器支持不超过 2 MB 的 plist、JSON、XML 和常见文本文件；二进制 plist 会转换为 XML 供编辑，保存时恢复原格式，非法 plist/JSON 会被拒绝。
+- 系统文件在内容修改、重命名或删除前自动备份到 `Documents/SystemFileBackups`；系统目录仍禁止重命名或删除。`com.apple.MobileGestalt.plist` 可在解锁后编辑，也可在输入 `DELETE` 二次确认后备份、删除并重新枚举验证。
 - 已启用 iOS 文件共享，`Documents` 可通过“文件”App、Finder 或 iTunes 访问。
 
 ## 为什么 IPA 压缩包内没有真实 `/var`
@@ -30,5 +31,5 @@ GitHub Actions 生成的是未签名 IPA，不能直接通过系统安装。需�
 
 - 文件浏览界面最低支持 iOS 17。
 - 真实 `/private/var` 访问依赖上游 `bad_query`，上游目前仅声明支持 iOS 27.0 beta 1–4；其他版本通常只能使用应用自身沙盒。
-- `/private/var` 不存在一个可全局授予的根权限；每个精确目标都必须单独成功授权。写按钮只有在只读枚举和 `W_OK` 探测均通过后才出现。
+- `/private/var` 不存在一个可全局授予的根权限；每个精确目标都必须单独成功授权。`access(..., W_OK)` 不能可靠反映 sandbox extension 的实际能力，因此新版以真实但可回滚的文件操作作为写权限判定；任何一步失败都会保持只读并显示系统错误。
 - MobileGestalt 修改仍是高风险功能，操作前请保留设备备份；仓库上游明确提示错误修改可能导致 bootloop。

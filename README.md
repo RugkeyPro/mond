@@ -24,7 +24,7 @@
 **Known Issues:**<br>
 &#45; The `/private/var` root cannot be granted directly; the browser requests narrower real paths and reuses each grant for its descendants<br>
 &#45; Real system files only appear when the selected path and installed iOS build are supported<br>
-&#45; Write controls appear only after real filesystem operations succeed; system directories and `com.apple.MobileGestalt.plist` remain protected from rename/delete, while validated content editing is available after unlock<br>
+&#45; Write controls appear only after real filesystem operations succeed; system directories remain protected, while `com.apple.MobileGestalt.plist` can be edited or deleted after unlock. Critical deletion requires a safety backup, typed confirmation and post-delete verification<br>
 &#45; Tweaks may disappear on reboot<br>
 &#45; Apple Intelligence activation is broken<br>
 &#45; Disable Region restrictions may be broken on some versions/devices<br>

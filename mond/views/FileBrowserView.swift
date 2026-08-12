@@ -57,6 +57,7 @@ private enum FileBrowserError: LocalizedError {
     case directoryMutationBlocked
     case protectedSystemItem(String)
     case backupFailed(String)
+    case deletionVerificationFailed(String)
     case editorUnsupported(String)
     case fileTooLarge(Int64)
 
@@ -96,9 +97,11 @@ private enum FileBrowserError: LocalizedError {
         case .directoryMutationBlocked:
             return "System directories cannot be renamed or deleted by this browser."
         case let .protectedSystemItem(path):
-            return "\(path) is protected from rename and deletion because removing it can prevent iOS from booting. Use mond's dedicated editor or Revert Tweaks instead."
+            return "\(path) cannot be renamed. It may be edited, or deleted through the separate backed-up critical-deletion flow."
         case let .backupFailed(reason):
             return "The safety backup failed, so the system change was cancelled: \(reason)"
+        case let .deletionVerificationFailed(path):
+            return "Deletion was requested, but \(path) still exists after the directory was re-read. iOS may have recreated it immediately. The safety backup was kept."
         case let .editorUnsupported(name):
             return "\(name) is not a supported editable text, JSON, XML, or property-list file."
         case let .fileTooLarge(size):
@@ -297,10 +300,20 @@ final class FileBrowserModel: ObservableObject {
         operationMessage = "System writes locked for this session."
     }
 
-    func canRenameOrDelete(_ node: FileNode) -> Bool {
+    func canRename(_ node: FileNode) -> Bool {
         guard canEdit else { return false }
         if root.mode == .sandbox { return true }
         return !node.isDirectory && !isProtectedSystemItem(node.url)
+    }
+
+    func canDelete(_ node: FileNode) -> Bool {
+        guard canEdit else { return false }
+        if root.mode == .sandbox { return true }
+        return !node.isDirectory
+    }
+
+    func requiresCriticalDeleteConfirmation(_ node: FileNode) -> Bool {
+        root.mode == .systemManaged && isProtectedSystemItem(node.url)
     }
 
     func canEditContents(_ node: FileNode) -> Bool {
@@ -377,7 +390,7 @@ final class FileBrowserModel: ObservableObject {
         performEditableOperation(successMessage: "Item renamed.") {
             guard contains(node.url) else { throw FileBrowserError.outsideRoot }
             if root.mode == .systemManaged {
-                try validateSystemFileMutation(node)
+                try validateSystemFileRename(node)
                 let backup = try backupSystemFile(node.url)
                 operationMessage = "Safety backup saved to \(backup.path)."
             }
@@ -390,14 +403,37 @@ final class FileBrowserModel: ObservableObject {
     }
 
     func delete(_ node: FileNode) {
-        performEditableOperation(successMessage: "Item deleted after backup.") {
+        do {
+            guard canEdit else { throw FileBrowserError.readOnly }
             guard contains(node.url) else { throw FileBrowserError.outsideRoot }
+
+            var backup: URL?
             if root.mode == .systemManaged {
-                try validateSystemFileMutation(node)
-                let backup = try backupSystemFile(node.url)
-                operationMessage = "Safety backup saved to \(backup.path)."
+                guard !node.isDirectory else { throw FileBrowserError.directoryMutationBlocked }
+                backup = try backupSystemFile(node.url)
             }
+
             try FileManager.default.removeItem(at: node.url)
+
+            let remainingNodes = try readNodes(at: node.url.deletingLastPathComponent())
+            let stillListed = remainingNodes.contains {
+                $0.url.standardizedFileURL.path == node.url.standardizedFileURL.path
+            }
+            guard !FileManager.default.fileExists(atPath: node.url.path), !stillListed else {
+                throw FileBrowserError.deletionVerificationFailed(node.url.path)
+            }
+
+            errorMessage = nil
+            if let backup {
+                operationMessage = "Deleted and verified \(node.url.lastPathComponent). Safety backup: \(backup.path)"
+            } else {
+                operationMessage = "Deleted and verified \(node.url.lastPathComponent)."
+            }
+            reload()
+        } catch {
+            let operationError = error.localizedDescription
+            reload()
+            errorMessage = operationError
         }
     }
 
@@ -598,7 +634,7 @@ final class FileBrowserModel: ObservableObject {
         }
     }
 
-    private func validateSystemFileMutation(_ node: FileNode) throws {
+    private func validateSystemFileRename(_ node: FileNode) throws {
         guard !node.isDirectory else { throw FileBrowserError.directoryMutationBlocked }
         guard !isProtectedSystemItem(node.url) else {
             throw FileBrowserError.protectedSystemItem(node.url.path)
@@ -711,6 +747,8 @@ struct FileBrowserView: View {
     @State private var pendingName = ""
     @State private var renameNode: FileNode?
     @State private var deleteNode: FileNode?
+    @State private var criticalDeleteNode: FileNode?
+    @State private var criticalDeleteConfirmation = ""
     @State private var showUnlockConfirmation = false
 
     private enum CreationKind: String, Identifiable {
@@ -795,8 +833,8 @@ struct FileBrowserView: View {
                         guard model.canEdit else { return }
                         for index in offsets {
                             let candidate = model.nodes[index]
-                            if model.canRenameOrDelete(candidate) {
-                                deleteNode = candidate
+                            if model.canDelete(candidate) {
+                                requestDelete(candidate)
                                 break
                             }
                         }
@@ -851,7 +889,7 @@ struct FileBrowserView: View {
             Button("Cancel", role: .cancel) {}
             Button("Verify and Enable") { model.unlockSystemEditing() }
         } message: {
-            Text("mond will create temporary probe files and verify create, rename, atomic replace and delete operations without changing existing files. System files are backed up before editing, renaming or deletion. System directories and MobileGestalt.plist cannot be renamed or deleted.")
+            Text("mond will create temporary probe files and verify create, rename, atomic replace and delete operations without changing existing files. System files are backed up before editing, renaming or deletion. System directories cannot be renamed or deleted. MobileGestalt.plist deletion requires a separate typed confirmation.")
         }
         .alert(creationKind?.rawValue ?? "Create", isPresented: Binding(
             get: { creationKind != nil },
@@ -897,6 +935,31 @@ struct FileBrowserView: View {
                  ? "The regular file will be copied to Documents/SystemFileBackups before deletion."
                  : "This cannot be undone.")
         }
+        .alert("Delete critical system file?", isPresented: Binding(
+            get: { criticalDeleteNode != nil },
+            set: {
+                if !$0 {
+                    criticalDeleteNode = nil
+                    criticalDeleteConfirmation = ""
+                }
+            }
+        )) {
+            TextField("Type DELETE", text: $criticalDeleteConfirmation)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) {
+                criticalDeleteNode = nil
+                criticalDeleteConfirmation = ""
+            }
+            Button("Back Up and Delete", role: .destructive) {
+                if let node = criticalDeleteNode { model.delete(node) }
+                criticalDeleteNode = nil
+                criticalDeleteConfirmation = ""
+            }
+            .disabled(criticalDeleteConfirmation != "DELETE")
+        } message: {
+            Text("Deleting com.apple.MobileGestalt.plist can make iOS unstable or unbootable. mond will first copy it to Documents/SystemFileBackups, then delete it and re-read the directory to verify the result. Type DELETE to continue.")
+        }
     }
 
     private var statusIcon: String {
@@ -917,21 +980,32 @@ struct FileBrowserView: View {
             return "Select a precise /private/var target. No virtual folders are shown as successful access."
         }
         if model.canEdit {
-            return "Real read/write access is verified. Open a supported file and tap Edit; system-file changes use safety backups."
+            return "Real read/write access is verified. System-file edits and deletions use safety backups; critical deletion requires typed confirmation."
         }
         return "Real read access is verified. Tap the lock to test reversible write operations and opt in to changes."
     }
 
     @ViewBuilder
     private func editableMenu(for node: FileNode) -> some View {
-        if model.canRenameOrDelete(node) {
+        if model.canRename(node) {
             Button("Rename", systemImage: "pencil") {
                 pendingName = node.url.lastPathComponent
                 renameNode = node
             }
+        }
+        if model.canDelete(node) {
             Button("Delete", systemImage: "trash", role: .destructive) {
-                deleteNode = node
+                requestDelete(node)
             }
+        }
+    }
+
+    private func requestDelete(_ node: FileNode) {
+        if model.requiresCriticalDeleteConfirmation(node) {
+            criticalDeleteConfirmation = ""
+            criticalDeleteNode = node
+        } else {
+            deleteNode = node
         }
     }
 }
