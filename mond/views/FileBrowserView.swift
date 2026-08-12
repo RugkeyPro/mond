@@ -57,6 +57,8 @@ private enum FileBrowserError: LocalizedError {
     case directoryMutationBlocked
     case protectedSystemItem(String)
     case backupFailed(String)
+    case editorUnsupported(String)
+    case fileTooLarge(Int64)
 
     var errorDescription: String? {
         switch self {
@@ -97,6 +99,10 @@ private enum FileBrowserError: LocalizedError {
             return "\(path) is protected from rename and deletion because removing it can prevent iOS from booting. Use mond's dedicated editor or Revert Tweaks instead."
         case let .backupFailed(reason):
             return "The safety backup failed, so the system change was cancelled: \(reason)"
+        case let .editorUnsupported(name):
+            return "\(name) is not a supported editable text, JSON, XML, or property-list file."
+        case let .fileTooLarge(size):
+            return "This file is \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)); the built-in editor is limited to 2 MB."
         }
     }
 }
@@ -270,16 +276,16 @@ final class FileBrowserModel: ObservableObject {
                 throw FileBrowserError.readOnly
             }
 
-            try grantSystemAccess(to: target.url)
-            errno = 0
-            let result = target.id.withCString { Darwin.access($0, W_OK) }
-            guard result == 0 else {
-                let detail = String(cString: strerror(errno))
-                throw FileBrowserError.writeProbeFailed(target.id, detail)
+            do {
+                try grantSystemAccess(to: target.url, requireFreshExtension: true)
+            } catch {
+                guard canEnumerate(target.url) else { throw error }
+                accessNote = "A fresh write grant failed (\(error.localizedDescription)); testing the process's existing readable extension with real file operations."
             }
+            try verifyWriteOperations(in: currentURL)
 
             unlockedWriteTarget = target.id
-            operationMessage = "Managed writes verified for \(target.id). System file rename/delete is backed up first; system directories remain protected."
+            operationMessage = "Create, rename, atomic replace and delete were verified in \(currentURL.path). Existing system files are backed up before changes."
         } catch {
             unlockedWriteTarget = nil
             errorMessage = error.localizedDescription
@@ -295,6 +301,60 @@ final class FileBrowserModel: ObservableObject {
         guard canEdit else { return false }
         if root.mode == .sandbox { return true }
         return !node.isDirectory && !isProtectedSystemItem(node.url)
+    }
+
+    func canEditContents(_ node: FileNode) -> Bool {
+        guard canEdit, !node.isDirectory else { return false }
+        if let size = node.size, size > 2_000_000 { return false }
+        return editableExtensions.contains(node.url.pathExtension.lowercased())
+    }
+
+    func editableText(for node: FileNode) throws -> String {
+        guard !node.isDirectory, contains(node.url) else { throw FileBrowserError.outsideRoot }
+        if let size = node.size, size > 2_000_000 { throw FileBrowserError.fileTooLarge(size) }
+
+        let ext = node.url.pathExtension.lowercased()
+        guard editableExtensions.contains(ext) else {
+            throw FileBrowserError.editorUnsupported(node.url.lastPathComponent)
+        }
+
+        let data = try Data(contentsOf: node.url)
+        if ext == "plist" {
+            var format = PropertyListSerialization.PropertyListFormat.xml
+            let object = try PropertyListSerialization.propertyList(
+                from: data,
+                options: [.mutableContainersAndLeaves],
+                format: &format
+            )
+            let xml = try PropertyListSerialization.data(
+                fromPropertyList: object,
+                format: .xml,
+                options: 0
+            )
+            guard let text = String(data: xml, encoding: .utf8) else {
+                throw FileBrowserError.editorUnsupported(node.url.lastPathComponent)
+            }
+            return text
+        }
+
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw FileBrowserError.editorUnsupported(node.url.lastPathComponent)
+        }
+        return text
+    }
+
+    func saveEditedText(_ text: String, to node: FileNode) throws {
+        guard canEditContents(node), contains(node.url) else { throw FileBrowserError.readOnly }
+        let data = try validatedEditorData(text, for: node)
+
+        if root.mode == .systemManaged {
+            let backup = try backupSystemFile(node.url)
+            operationMessage = "Safety backup saved to \(backup.path)."
+        }
+
+        try atomicallyReplaceFile(at: node.url, with: data)
+        operationMessage = "Saved \(node.url.lastPathComponent). \(operationMessage ?? "")"
+        reload()
     }
 
     func createFolder(named name: String) {
@@ -403,6 +463,84 @@ final class FileBrowserModel: ObservableObject {
         return cleanName
     }
 
+    private var editableExtensions: Set<String> {
+        ["plist", "json", "xml", "txt", "log", "md", "conf", "cfg", "ini", "strings"]
+    }
+
+    private func validatedEditorData(_ text: String, for node: FileNode) throws -> Data {
+        let input = Data(text.utf8)
+        switch node.url.pathExtension.lowercased() {
+        case "plist":
+            var editedFormat = PropertyListSerialization.PropertyListFormat.xml
+            let object = try PropertyListSerialization.propertyList(
+                from: input,
+                options: [.mutableContainersAndLeaves],
+                format: &editedFormat
+            )
+
+            var originalFormat = PropertyListSerialization.PropertyListFormat.xml
+            let original = try Data(contentsOf: node.url)
+            _ = try PropertyListSerialization.propertyList(
+                from: original,
+                options: [],
+                format: &originalFormat
+            )
+            let outputFormat: PropertyListSerialization.PropertyListFormat = originalFormat == .binary ? .binary : .xml
+            return try PropertyListSerialization.data(fromPropertyList: object, format: outputFormat, options: 0)
+        case "json":
+            _ = try JSONSerialization.jsonObject(with: input, options: [.fragmentsAllowed])
+            return input
+        default:
+            return input
+        }
+    }
+
+    private func verifyWriteOperations(in directory: URL) throws {
+        let fm = FileManager.default
+        let nonce = UUID().uuidString
+        let first = directory.appendingPathComponent(".mond-write-probe-\(nonce)-a")
+        let moved = directory.appendingPathComponent(".mond-write-probe-\(nonce)-b")
+        let replacement = directory.appendingPathComponent(".mond-write-probe-\(nonce)-c")
+        let payload = Data("mond-write-probe".utf8)
+        let replacementPayload = Data("mond-atomic-replace-probe".utf8)
+
+        defer {
+            try? fm.removeItem(at: first)
+            try? fm.removeItem(at: moved)
+            try? fm.removeItem(at: replacement)
+        }
+
+        do {
+            try payload.write(to: first, options: [.withoutOverwriting])
+            guard try Data(contentsOf: first) == payload else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            try fm.moveItem(at: first, to: moved)
+            try replacementPayload.write(to: replacement, options: [.withoutOverwriting])
+            _ = try fm.replaceItemAt(moved, withItemAt: replacement)
+            guard try Data(contentsOf: moved) == replacementPayload else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            try fm.removeItem(at: moved)
+        } catch {
+            throw FileBrowserError.writeProbeFailed(directory.path, error.localizedDescription)
+        }
+    }
+
+    private func atomicallyReplaceFile(at destination: URL, with data: Data) throws {
+        let fm = FileManager.default
+        let temporary = destination.deletingLastPathComponent()
+            .appendingPathComponent(".mond-edit-\(UUID().uuidString).tmp")
+        try data.write(to: temporary, options: [.withoutOverwriting])
+        defer { try? fm.removeItem(at: temporary) }
+
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: temporary)
+        } else {
+            try fm.moveItem(at: temporary, to: destination)
+        }
+    }
+
     private func contains(_ url: URL) -> Bool {
         containsPath(url.standardizedFileURL.path, in: root.url.standardizedFileURL.path)
     }
@@ -416,15 +554,15 @@ final class FileBrowserModel: ObservableObject {
         return supportedSystemTargets.first { containsPath(candidate, in: $0.id) }
     }
 
-    private func grantSystemAccess(to url: URL) throws {
+    private func grantSystemAccess(to url: URL, requireFreshExtension: Bool = false) throws {
         guard let target = systemTarget(containing: url) else {
             throw FileBrowserError.outsideRoot
         }
-        guard !grantedTargetPaths.contains(target.id) else { return }
+        if !requireFreshExtension, grantedTargetPaths.contains(target.id) { return }
 
         // ContentView normally runs grant_mg_write() before the browser opens.
         // Reuse that process-wide extension when the target is already readable.
-        if canEnumerate(target.url) {
+        if !requireFreshExtension, canEnumerate(target.url) {
             grantedTargetPaths.insert(target.id)
             accessNote = "Verified real access to \(target.id) using the process's existing sandbox extension."
             return
@@ -477,7 +615,8 @@ final class FileBrowserModel: ObservableObject {
             let backupRoot = documents.appendingPathComponent("SystemFileBackups", isDirectory: true)
             let stamp = ISO8601DateFormatter().string(from: Date())
                 .replacingOccurrences(of: ":", with: "-")
-            let backupDirectory = backupRoot.appendingPathComponent(stamp, isDirectory: true)
+            let backupDirectory = backupRoot
+                .appendingPathComponent("\(stamp)-\(UUID().uuidString.prefix(8))", isDirectory: true)
             try FileManager.default.createDirectory(
                 at: backupDirectory,
                 withIntermediateDirectories: true
@@ -559,7 +698,7 @@ struct FileBrowserHomeView: View {
                     }
                 }
             } footer: {
-                Text("/private/var is not globally granted. Select a precise target. Only verified targets can be unlocked; system files are backed up before rename or deletion.")
+                Text("/private/var is not globally granted. Select a precise target. Writes unlock only after reversible file operations succeed; system files are backed up before editing, renaming or deletion.")
             }
         }
         .navigationTitle("Files")
@@ -641,7 +780,11 @@ struct FileBrowserView: View {
                             .contextMenu { editableMenu(for: node) }
                         } else {
                             NavigationLink {
-                                FilePreviewView(node: node, allowSharing: model.root.mode == .sandbox)
+                                FilePreviewView(
+                                    node: node,
+                                    allowSharing: model.root.mode == .sandbox,
+                                    model: model
+                                )
                             } label: {
                                 FileNodeRow(node: node, showFullPath: model.isSystemIndex)
                             }
@@ -708,7 +851,7 @@ struct FileBrowserView: View {
             Button("Cancel", role: .cancel) {}
             Button("Verify and Enable") { model.unlockSystemEditing() }
         } message: {
-            Text("mond will first verify that iOS granted write access. Existing regular files are backed up to Documents/SystemFileBackups before rename or deletion. System directories and MobileGestalt.plist cannot be renamed or deleted here.")
+            Text("mond will create temporary probe files and verify create, rename, atomic replace and delete operations without changing existing files. System files are backed up before editing, renaming or deletion. System directories and MobileGestalt.plist cannot be renamed or deleted.")
         }
         .alert(creationKind?.rawValue ?? "Create", isPresented: Binding(
             get: { creationKind != nil },
@@ -774,9 +917,9 @@ struct FileBrowserView: View {
             return "Select a precise /private/var target. No virtual folders are shown as successful access."
         }
         if model.canEdit {
-            return "Real read/write access is verified for this target. System file changes use safety backups."
+            return "Real read/write access is verified. Open a supported file and tap Edit; system-file changes use safety backups."
         }
-        return "Real read access is required before files appear. Use the lock button to verify and opt in to writes."
+        return "Real read access is verified. Tap the lock to test reversible write operations and opt in to changes."
     }
 
     @ViewBuilder
@@ -835,6 +978,7 @@ private struct FileNodeRow: View {
 private struct FilePreviewView: View {
     let node: FileNode
     let allowSharing: Bool
+    @ObservedObject var model: FileBrowserModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -864,6 +1008,91 @@ private struct FilePreviewView: View {
         }
         .navigationTitle(node.url.lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if model.canEditContents(node) {
+                NavigationLink {
+                    TextFileEditorView(node: node, model: model)
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+            }
+        }
+    }
+}
+
+private struct TextFileEditorView: View {
+    let node: FileNode
+    @ObservedObject var model: FileBrowserModel
+    @State private var text = ""
+    @State private var loadError: String?
+    @State private var isLoaded = false
+    @State private var showSaveConfirmation = false
+    @State private var saveResult: String?
+
+    var body: some View {
+        Group {
+            if let loadError {
+                ContentUnavailableView(
+                    "Unable to Edit",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(loadError)
+                )
+            } else if !isLoaded {
+                ProgressView("Loading…")
+            } else {
+                TextEditor(text: $text)
+                    .font(.system(.body, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(6)
+            }
+        }
+        .navigationTitle(node.url.lastPathComponent)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear(perform: load)
+        .toolbar {
+            if isLoaded {
+                Button("Save", systemImage: "square.and.arrow.down") {
+                    showSaveConfirmation = true
+                }
+                .disabled(!model.canEditContents(node))
+            }
+        }
+        .alert("Save changes?", isPresented: $showSaveConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Save", role: .destructive, action: save)
+        } message: {
+            Text(model.root.mode == .systemManaged
+                 ? "The current file will be backed up to Documents/SystemFileBackups, validated, then replaced atomically. Invalid plist or JSON content will be rejected."
+                 : "The file will be validated when applicable and replaced atomically.")
+        }
+        .alert("Editor status", isPresented: Binding(
+            get: { saveResult != nil },
+            set: { if !$0 { saveResult = nil } }
+        )) {
+            Button("OK") { saveResult = nil }
+        } message: {
+            Text(saveResult ?? "")
+        }
+    }
+
+    private func load() {
+        guard !isLoaded, loadError == nil else { return }
+        do {
+            text = try model.editableText(for: node)
+            isLoaded = true
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    private func save() {
+        do {
+            try model.saveEditedText(text, to: node)
+            saveResult = "Saved successfully. A safety backup was created for system files."
+        } catch {
+            saveResult = error.localizedDescription
+        }
     }
 }
 
