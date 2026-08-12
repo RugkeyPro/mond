@@ -78,7 +78,7 @@ struct ContentView: View {
                 } header: {
                     Label("Files", systemImage: "internaldrive")
                 } footer: {
-                    Text("Browse mond's container or open the read-only /var path index on supported iOS builds.")
+                    Text("Browse mond's container or verify precise /private/var paths; managed writes require an explicit per-target check.")
                 }
 
                 if !mg_valid || mg_empty {
