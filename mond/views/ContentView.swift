@@ -78,7 +78,7 @@ struct ContentView: View {
                 } header: {
                     Label("Files", systemImage: "internaldrive")
                 } footer: {
-                    Text("Browse mond's container or open the read-only /private/var view on supported iOS builds.")
+                    Text("Browse mond's container or open the read-only /var path index on supported iOS builds.")
                 }
 
                 if !mg_valid || mg_empty {

@@ -13,14 +13,15 @@
 
 **Included in this build:**<br>
 &#45; Editable browser for mond's Documents, Library and temporary directories<br>
-&#45; Read-only `/private/var` browser using bad_query on supported iOS builds<br>
+&#45; Read-only `/var` path index using bad_query on supported iOS builds<br>
 &#45; Files/iTunes document sharing for the Documents directory<br>
 
 **Planned:**<br>
 &#45; Pocket Poster
 
 **Known Issues:**<br>
-&#45; `/private/var` access only works when bad_query succeeds on a supported iOS build<br>
+&#45; The `/var` root cannot be granted directly; the browser links to narrower paths documented by bad_query<br>
+&#45; Real system files only appear when the selected path and installed iOS build are supported<br>
 &#45; System paths are intentionally read-only to reduce data-loss and bootloop risk<br>
 &#45; Tweaks may disappear on reboot<br>
 &#45; Apple Intelligence activation is broken<br>

@@ -45,7 +45,22 @@ private enum FileBrowserError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .exploitFailed(code, path):
-            return "bad_query could not grant access to \(path) (error \(code)). This path is only available on a supported iOS build."
+            let reason: String
+            switch code {
+            case -1:
+                reason = "Required container-manager functions are unavailable."
+            case -2:
+                reason = "The container query could not be created."
+            case -3:
+                reason = "The container manager returned no result. The path or this iOS build is not supported."
+            case -4:
+                reason = "iOS refused to issue a sandbox token."
+            case -254:
+                reason = "The path does not exist on this device."
+            default:
+                reason = "The access request failed."
+            }
+            return "Could not open \(path): bad_query returned \(code). \(reason) Device: \(ProcessInfo.processInfo.operatingSystemVersionString)."
         case .invalidName:
             return "Names cannot be empty or contain a slash."
         case .readOnly:
@@ -67,6 +82,20 @@ final class FileBrowserModel: ObservableObject {
     private var sandboxHandles: [Int64] = []
     private var grantedPaths: Set<String> = []
 
+    // bad_query generally cannot grant a parent such as /var directly.  The
+    // upstream proof of concept documents these narrower locations instead.
+    private let supportedSystemTargets: [URL] = [
+        URL(
+            fileURLWithPath: "/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches",
+            isDirectory: true
+        ),
+        URL(fileURLWithPath: "/var/containers/Data/System", isDirectory: true),
+        URL(fileURLWithPath: "/var/mobile/Containers/Data/Application", isDirectory: true),
+        URL(fileURLWithPath: "/var/mobile/Containers/Data/InternalDaemon", isDirectory: true),
+        URL(fileURLWithPath: "/var/mobile/Containers/Data/PluginKitPlugin", isDirectory: true),
+        URL(fileURLWithPath: "/var/mobile/Containers/Shared/AppGroup", isDirectory: true),
+    ]
+
     init(root: BrowserRoot) {
         self.root = root
         currentURL = root.url.standardizedFileURL
@@ -86,6 +115,11 @@ final class FileBrowserModel: ObservableObject {
         currentURL.standardizedFileURL.path != root.url.standardizedFileURL.path
     }
 
+    var isSystemIndex: Bool {
+        root.mode == .systemReadOnly &&
+        currentURL.standardizedFileURL.path == root.url.standardizedFileURL.path
+    }
+
     var displayPath: String {
         let rootPath = root.url.standardizedFileURL.path
         let currentPath = currentURL.standardizedFileURL.path
@@ -103,6 +137,15 @@ final class FileBrowserModel: ObservableObject {
         errorMessage = nil
         accessNote = nil
 
+        if isSystemIndex {
+            nodes = supportedSystemTargets.map {
+                FileNode(url: $0, isDirectory: true, size: nil, modified: nil)
+            }
+            accessNote = "The /var root is not requested directly. Choose a specific location that bad_query can grant on supported iOS builds."
+            isLoading = false
+            return
+        }
+
         do {
             if root.mode == .systemReadOnly {
                 try grantReadAccess(to: currentURL)
@@ -114,27 +157,17 @@ final class FileBrowserModel: ObservableObject {
                 .contentModificationDateKey,
                 .isHiddenKey,
             ]
-            let urls: [URL]
-            var fallbackDirectoryPaths: Set<String> = []
-            do {
-                urls = try FileManager.default.contentsOfDirectory(
-                    at: currentURL,
-                    includingPropertiesForKeys: keys,
-                    options: []
-                )
-            } catch {
-                let knownURLs = knownSystemChildren(of: currentURL)
-                guard root.mode == .systemReadOnly, !knownURLs.isEmpty else { throw error }
-                urls = knownURLs
-                fallbackDirectoryPaths = Set(knownURLs.map { $0.standardizedFileURL.path })
-                accessNote = "Direct enumeration was blocked. Showing known child paths so you can continue navigating."
-            }
+            let urls = try FileManager.default.contentsOfDirectory(
+                at: currentURL,
+                includingPropertiesForKeys: keys,
+                options: []
+            )
 
             nodes = urls.compactMap { url in
                 let values = try? url.resourceValues(forKeys: Set(keys))
                 return FileNode(
                     url: url,
-                    isDirectory: values?.isDirectory ?? fallbackDirectoryPaths.contains(url.standardizedFileURL.path),
+                    isDirectory: values?.isDirectory ?? false,
                     size: values?.fileSize.map(Int64.init),
                     modified: values?.contentModificationDate
                 )
@@ -165,8 +198,28 @@ final class FileBrowserModel: ObservableObject {
     func goUp() {
         guard canGoUp else { return }
         let parent = currentURL.deletingLastPathComponent().standardizedFileURL
-        guard contains(parent) else { return }
-        currentURL = parent
+
+        if root.mode == .systemReadOnly {
+            let currentPath = currentURL.standardizedFileURL.path
+            let target = supportedSystemTargets.first { target in
+                let targetPath = target.standardizedFileURL.path
+                return currentPath == targetPath || currentPath.hasPrefix(targetPath + "/")
+            }
+
+            if let target {
+                let targetPath = target.standardizedFileURL.path
+                let parentPath = parent.standardizedFileURL.path
+                currentURL = (currentPath == targetPath ||
+                              (parentPath != targetPath && !parentPath.hasPrefix(targetPath + "/")))
+                    ? root.url.standardizedFileURL
+                    : parent
+            } else {
+                currentURL = root.url.standardizedFileURL
+            }
+        } else {
+            guard contains(parent) else { return }
+            currentURL = parent
+        }
         reload()
     }
 
@@ -251,21 +304,6 @@ final class FileBrowserModel: ObservableObject {
         grantedPaths.insert(path)
     }
 
-    private func knownSystemChildren(of url: URL) -> [URL] {
-        let names: [String]
-        switch url.standardizedFileURL.path {
-        case "/private/var":
-            names = ["containers", "db", "log", "mobile", "preferences", "root", "run", "tmp"]
-        case "/private/var/containers":
-            names = ["Bundle", "Data", "Shared", "Temp"]
-        case "/private/var/mobile":
-            names = ["Documents", "Library", "Media"]
-        default:
-            names = []
-        }
-
-        return names.map { url.appendingPathComponent($0, isDirectory: true) }
-    }
 }
 
 struct FileBrowserHomeView: View {
@@ -298,10 +336,10 @@ struct FileBrowserHomeView: View {
                 mode: .sandbox
             ),
             BrowserRoot(
-                title: "/private/var",
-                subtitle: "Read-only system view; requires supported bad_query",
+                title: "/var",
+                subtitle: "Read-only index of paths supported by bad_query",
                 icon: "internaldrive",
-                url: URL(fileURLWithPath: "/private/var", isDirectory: true),
+                url: URL(fileURLWithPath: "/var", isDirectory: true),
                 mode: .systemReadOnly
             ),
         ]
@@ -328,7 +366,7 @@ struct FileBrowserHomeView: View {
                     }
                 }
             } footer: {
-                Text("System paths are intentionally read-only. Files in mond's own container can be created, renamed, deleted and shared.")
+                Text("System paths are intentionally read-only. The /var entry opens specific supported locations instead of requesting the inaccessible root directory.")
             }
         }
         .navigationTitle("Files")
@@ -360,7 +398,7 @@ struct FileBrowserView: View {
                     Image(systemName: model.root.mode == .systemReadOnly ? "lock.fill" : "pencil")
                         .foregroundStyle(model.root.mode == .systemReadOnly ? .orange : .green)
                     Text(model.root.mode == .systemReadOnly
-                         ? "Read-only system view. Navigation and preview are enabled; modification is blocked to reduce bootloop and data-loss risk."
+                         ? "Read-only system view. The top level is a path index; real files appear only after iOS grants the selected location."
                          : "Editable app container. Long-press a row to rename or delete it.")
                         .font(.footnote)
                 }
@@ -396,7 +434,7 @@ struct FileBrowserView: View {
                             Button {
                                 model.open(node)
                             } label: {
-                                FileNodeRow(node: node)
+                                FileNodeRow(node: node, showFullPath: model.isSystemIndex)
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -406,7 +444,7 @@ struct FileBrowserView: View {
                             NavigationLink {
                                 FilePreviewView(node: node, allowSharing: model.root.mode == .sandbox)
                             } label: {
-                                FileNodeRow(node: node)
+                                FileNodeRow(node: node, showFullPath: model.isSystemIndex)
                             }
                             .contextMenu {
                                 editableMenu(for: node)
@@ -522,6 +560,7 @@ struct FileBrowserView: View {
 
 private struct FileNodeRow: View {
     let node: FileNode
+    let showFullPath: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -530,8 +569,8 @@ private struct FileNodeRow: View {
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(node.url.lastPathComponent)
-                    .lineLimit(1)
+                Text(showFullPath ? node.url.path : node.url.lastPathComponent)
+                    .lineLimit(showFullPath ? 3 : 1)
                 HStack(spacing: 8) {
                     if let size = node.size, !node.isDirectory {
                         Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
