@@ -13,16 +13,17 @@
 
 **Included in this build:**<br>
 &#45; Editable browser for mond's Documents, Library and temporary directories<br>
-&#45; Read-only `/var` path index using bad_query on supported iOS builds<br>
+&#45; Verified `/private/var` precise-path browser using bad_query on supported iOS builds<br>
+&#45; Opt-in managed writes with automatic file backups before rename or deletion<br>
 &#45; Files/iTunes document sharing for the Documents directory<br>
 
 **Planned:**<br>
 &#45; Pocket Poster
 
 **Known Issues:**<br>
-&#45; The `/var` root cannot be granted directly; the browser links to narrower paths documented by bad_query<br>
+&#45; The `/private/var` root cannot be granted directly; the browser requests narrower real paths and reuses each grant for its descendants<br>
 &#45; Real system files only appear when the selected path and installed iOS build are supported<br>
-&#45; System paths are intentionally read-only to reduce data-loss and bootloop risk<br>
+&#45; Write controls appear only after an independent write-access check; system directories and `com.apple.MobileGestalt.plist` remain protected from rename/delete<br>
 &#45; Tweaks may disappear on reboot<br>
 &#45; Apple Intelligence activation is broken<br>
 &#45; Disable Region restrictions may be broken on some versions/devices<br>
