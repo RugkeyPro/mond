@@ -6,6 +6,7 @@
 //  exposed by bad_query. System locations intentionally stay read-only.
 //
 
+import Combine
 import Foundation
 import QuickLook
 import SwiftUI
