@@ -2,11 +2,13 @@
 //  FileBrowserView.swift
 //  mond
 //
-//  A small on-device browser for mond's own container and the directory
-//  exposed by bad_query. System locations intentionally stay read-only.
+//  On-device browser for mond's container and the precise /private/var
+//  targets exposed by bad_query. System writes are verified, opt-in and
+//  backed up before destructive operations.
 //
 
 import Combine
+import Darwin
 import Foundation
 import QuickLook
 import SwiftUI
@@ -14,7 +16,7 @@ import UIKit
 
 enum BrowserAccessMode: Hashable {
     case sandbox
-    case systemReadOnly
+    case systemManaged
 }
 
 struct BrowserRoot: Identifiable, Hashable {
@@ -36,11 +38,25 @@ struct FileNode: Identifiable, Hashable {
     var id: String { url.path }
 }
 
+private struct SystemTarget: Identifiable, Hashable {
+    let title: String
+    let url: URL
+    let queryPath: String
+    let allowsManagedWrites: Bool
+
+    var id: String { url.standardizedFileURL.path }
+}
+
 private enum FileBrowserError: LocalizedError {
     case exploitFailed(Int64, String)
+    case grantDidNotOpenPath(String, String)
+    case writeProbeFailed(String, String)
     case invalidName
     case readOnly
     case outsideRoot
+    case directoryMutationBlocked
+    case protectedSystemItem(String)
+    case backupFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -48,25 +64,39 @@ private enum FileBrowserError: LocalizedError {
             let reason: String
             switch code {
             case -1:
-                reason = "Required container-manager functions are unavailable."
+                reason = "Required container-manager symbols are unavailable."
             case -2:
                 reason = "The container query could not be created."
             case -3:
-                reason = "The container manager returned no result. The path or this iOS build is not supported."
+                reason = "containermanager returned no object. This exact path or iOS build is not supported."
             case -4:
-                reason = "iOS refused to issue a sandbox token."
+                reason = "iOS refused to issue a sandbox extension."
+            case -5:
+                reason = "The traversal path could not be constructed."
             case -254:
                 reason = "The path does not exist on this device."
+            case -255:
+                reason = "The requested path is not absolute."
             default:
                 reason = "The access request failed."
             }
             return "Could not open \(path): bad_query returned \(code). \(reason) Device: \(ProcessInfo.processInfo.operatingSystemVersionString)."
+        case let .grantDidNotOpenPath(path, reason):
+            return "bad_query returned a handle, but \(path) is still unreadable: \(reason)"
+        case let .writeProbeFailed(path, reason):
+            return "Read access works, but iOS did not grant writes to \(path): \(reason)"
         case .invalidName:
-            return "Names cannot be empty or contain a slash."
+            return "Names cannot be empty, '.', '..', or contain a slash."
         case .readOnly:
-            return "System locations are read-only in this build."
+            return "Writes are not enabled for this location."
         case .outsideRoot:
             return "The requested path is outside the selected root."
+        case .directoryMutationBlocked:
+            return "System directories cannot be renamed or deleted by this browser."
+        case let .protectedSystemItem(path):
+            return "\(path) is protected from rename and deletion because removing it can prevent iOS from booting. Use mond's dedicated editor or Revert Tweaks instead."
+        case let .backupFailed(reason):
+            return "The safety backup failed, so the system change was cancelled: \(reason)"
         }
     }
 }
@@ -77,23 +107,53 @@ final class FileBrowserModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
     @Published private(set) var accessNote: String?
+    @Published private(set) var operationMessage: String?
+    @Published private(set) var unlockedWriteTarget: String?
 
     let root: BrowserRoot
     private var sandboxHandles: [Int64] = []
-    private var grantedPaths: Set<String> = []
+    private var grantedTargetPaths: Set<String> = []
 
-    // bad_query generally cannot grant a parent such as /var directly.  The
-    // upstream proof of concept documents these narrower locations instead.
-    private let supportedSystemTargets: [URL] = [
-        URL(
-            fileURLWithPath: "/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches",
-            isDirectory: true
+    // bad_query cannot normally grant /private/var itself. It must be called
+    // once for an exact target root, after which that grant is reused for all
+    // descendants. The first target exactly matches TweakPaths.gestalt_dir.
+    private let supportedSystemTargets: [SystemTarget] = [
+        SystemTarget(
+            title: "MobileGestalt Cache",
+            url: URL(fileURLWithPath: TweakPaths.gestalt_dir, isDirectory: true).standardizedFileURL,
+            queryPath: TweakPaths.gestalt_dir,
+            allowsManagedWrites: true
         ),
-        URL(fileURLWithPath: "/var/containers/Data/System", isDirectory: true),
-        URL(fileURLWithPath: "/var/mobile/Containers/Data/Application", isDirectory: true),
-        URL(fileURLWithPath: "/var/mobile/Containers/Data/InternalDaemon", isDirectory: true),
-        URL(fileURLWithPath: "/var/mobile/Containers/Data/PluginKitPlugin", isDirectory: true),
-        URL(fileURLWithPath: "/var/mobile/Containers/Shared/AppGroup", isDirectory: true),
+        SystemTarget(
+            title: "System Data Containers",
+            url: URL(fileURLWithPath: "/private/var/containers/Data/System", isDirectory: true),
+            queryPath: "/private/var/containers/Data/System/",
+            allowsManagedWrites: true
+        ),
+        SystemTarget(
+            title: "Application Containers",
+            url: URL(fileURLWithPath: "/private/var/mobile/Containers/Data/Application", isDirectory: true),
+            queryPath: "/private/var/mobile/Containers/Data/Application/",
+            allowsManagedWrites: true
+        ),
+        SystemTarget(
+            title: "Internal Daemon Containers",
+            url: URL(fileURLWithPath: "/private/var/mobile/Containers/Data/InternalDaemon", isDirectory: true),
+            queryPath: "/private/var/mobile/Containers/Data/InternalDaemon/",
+            allowsManagedWrites: true
+        ),
+        SystemTarget(
+            title: "Plugin Containers",
+            url: URL(fileURLWithPath: "/private/var/mobile/Containers/Data/PluginKitPlugin", isDirectory: true),
+            queryPath: "/private/var/mobile/Containers/Data/PluginKitPlugin/",
+            allowsManagedWrites: true
+        ),
+        SystemTarget(
+            title: "App Groups",
+            url: URL(fileURLWithPath: "/private/var/mobile/Containers/Shared/AppGroup", isDirectory: true),
+            queryPath: "/private/var/mobile/Containers/Shared/AppGroup/",
+            allowsManagedWrites: true
+        ),
     ]
 
     init(root: BrowserRoot) {
@@ -108,7 +168,17 @@ final class FileBrowserModel: ObservableObject {
     }
 
     var canEdit: Bool {
-        root.mode == .sandbox && contains(currentURL)
+        guard contains(currentURL) else { return false }
+        if root.mode == .sandbox { return true }
+        guard let target = systemTarget(containing: currentURL) else { return false }
+        return unlockedWriteTarget == target.id
+    }
+
+    var canUnlockSystemEditing: Bool {
+        guard root.mode == .systemManaged,
+              !isSystemIndex,
+              let target = systemTarget(containing: currentURL) else { return false }
+        return target.allowsManagedWrites && unlockedWriteTarget != target.id
     }
 
     var canGoUp: Bool {
@@ -116,7 +186,7 @@ final class FileBrowserModel: ObservableObject {
     }
 
     var isSystemIndex: Bool {
-        root.mode == .systemReadOnly &&
+        root.mode == .systemManaged &&
         currentURL.standardizedFileURL.path == root.url.standardizedFileURL.path
     }
 
@@ -139,43 +209,18 @@ final class FileBrowserModel: ObservableObject {
 
         if isSystemIndex {
             nodes = supportedSystemTargets.map {
-                FileNode(url: $0, isDirectory: true, size: nil, modified: nil)
+                FileNode(url: $0.url, isDirectory: true, size: nil, modified: nil)
             }
-            accessNote = "The /var root is not requested directly. Choose a specific location that bad_query can grant on supported iOS builds."
+            accessNote = "The /private/var parent is not requested. Select an exact target; mond then reuses one verified grant for that target and all of its children."
             isLoading = false
             return
         }
 
         do {
-            if root.mode == .systemReadOnly {
-                try grantReadAccess(to: currentURL)
+            if root.mode == .systemManaged {
+                try grantSystemAccess(to: currentURL)
             }
-
-            let keys: [URLResourceKey] = [
-                .isDirectoryKey,
-                .fileSizeKey,
-                .contentModificationDateKey,
-                .isHiddenKey,
-            ]
-            let urls = try FileManager.default.contentsOfDirectory(
-                at: currentURL,
-                includingPropertiesForKeys: keys,
-                options: []
-            )
-
-            nodes = urls.compactMap { url in
-                let values = try? url.resourceValues(forKeys: Set(keys))
-                return FileNode(
-                    url: url,
-                    isDirectory: values?.isDirectory ?? false,
-                    size: values?.fileSize.map(Int64.init),
-                    modified: values?.contentModificationDate
-                )
-            }
-            .sorted {
-                if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
-                return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
-            }
+            nodes = try readNodes(at: currentURL)
         } catch {
             nodes = []
             errorMessage = error.localizedDescription
@@ -199,18 +244,12 @@ final class FileBrowserModel: ObservableObject {
         guard canGoUp else { return }
         let parent = currentURL.deletingLastPathComponent().standardizedFileURL
 
-        if root.mode == .systemReadOnly {
+        if root.mode == .systemManaged {
             let currentPath = currentURL.standardizedFileURL.path
-            let target = supportedSystemTargets.first { target in
-                let targetPath = target.standardizedFileURL.path
-                return currentPath == targetPath || currentPath.hasPrefix(targetPath + "/")
-            }
-
+            let target = supportedSystemTargets.first { containsPath(currentPath, in: $0.id) }
             if let target {
-                let targetPath = target.standardizedFileURL.path
-                let parentPath = parent.standardizedFileURL.path
-                currentURL = (currentPath == targetPath ||
-                              (parentPath != targetPath && !parentPath.hasPrefix(targetPath + "/")))
+                let parentPath = parent.path
+                currentURL = (currentPath == target.id || !containsPath(parentPath, in: target.id))
                     ? root.url.standardizedFileURL
                     : parent
             } else {
@@ -223,15 +262,50 @@ final class FileBrowserModel: ObservableObject {
         reload()
     }
 
+    func unlockSystemEditing() {
+        do {
+            guard root.mode == .systemManaged,
+                  let target = systemTarget(containing: currentURL),
+                  target.allowsManagedWrites else {
+                throw FileBrowserError.readOnly
+            }
+
+            try grantSystemAccess(to: target.url)
+            errno = 0
+            let result = target.id.withCString { Darwin.access($0, W_OK) }
+            guard result == 0 else {
+                let detail = String(cString: strerror(errno))
+                throw FileBrowserError.writeProbeFailed(target.id, detail)
+            }
+
+            unlockedWriteTarget = target.id
+            operationMessage = "Managed writes verified for \(target.id). System file rename/delete is backed up first; system directories remain protected."
+        } catch {
+            unlockedWriteTarget = nil
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func lockSystemEditing() {
+        unlockedWriteTarget = nil
+        operationMessage = "System writes locked for this session."
+    }
+
+    func canRenameOrDelete(_ node: FileNode) -> Bool {
+        guard canEdit else { return false }
+        if root.mode == .sandbox { return true }
+        return !node.isDirectory && !isProtectedSystemItem(node.url)
+    }
+
     func createFolder(named name: String) {
-        performEditableOperation {
+        performEditableOperation(successMessage: "Folder created.") {
             let destination = try destinationURL(for: name)
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
         }
     }
 
     func createEmptyFile(named name: String) {
-        performEditableOperation {
+        performEditableOperation(successMessage: "Empty file created.") {
             let destination = try destinationURL(for: name)
             guard FileManager.default.createFile(atPath: destination.path, contents: Data()) else {
                 throw CocoaError(.fileWriteUnknown)
@@ -240,7 +314,14 @@ final class FileBrowserModel: ObservableObject {
     }
 
     func rename(_ node: FileNode, to name: String) {
-        performEditableOperation {
+        performEditableOperation(successMessage: "Item renamed.") {
+            guard contains(node.url) else { throw FileBrowserError.outsideRoot }
+            if root.mode == .systemManaged {
+                try validateSystemFileMutation(node)
+                let backup = try backupSystemFile(node.url)
+                operationMessage = "Safety backup saved to \(backup.path)."
+            }
+
             let cleanName = try validatedName(name)
             let destination = node.url.deletingLastPathComponent().appendingPathComponent(cleanName)
             guard contains(destination) else { throw FileBrowserError.outsideRoot }
@@ -249,16 +330,55 @@ final class FileBrowserModel: ObservableObject {
     }
 
     func delete(_ node: FileNode) {
-        performEditableOperation {
+        performEditableOperation(successMessage: "Item deleted after backup.") {
             guard contains(node.url) else { throw FileBrowserError.outsideRoot }
+            if root.mode == .systemManaged {
+                try validateSystemFileMutation(node)
+                let backup = try backupSystemFile(node.url)
+                operationMessage = "Safety backup saved to \(backup.path)."
+            }
             try FileManager.default.removeItem(at: node.url)
         }
     }
 
-    private func performEditableOperation(_ operation: () throws -> Void) {
+    private func readNodes(at url: URL) throws -> [FileNode] {
+        let keys: [URLResourceKey] = [
+            .isDirectoryKey,
+            .fileSizeKey,
+            .contentModificationDateKey,
+            .isHiddenKey,
+            .isSymbolicLinkKey,
+        ]
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: []
+        )
+
+        return urls.compactMap { child in
+            let values = try? child.resourceValues(forKeys: Set(keys))
+            return FileNode(
+                url: child,
+                isDirectory: values?.isDirectory ?? false,
+                size: values?.fileSize.map(Int64.init),
+                modified: values?.contentModificationDate
+            )
+        }
+        .sorted {
+            if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+            return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
+        }
+    }
+
+    private func performEditableOperation(successMessage: String, _ operation: () throws -> Void) {
         do {
             guard canEdit else { throw FileBrowserError.readOnly }
             try operation()
+            if operationMessage == nil || root.mode == .sandbox {
+                operationMessage = successMessage
+            } else if root.mode == .systemManaged {
+                operationMessage = "\(successMessage) \(operationMessage ?? "")"
+            }
             reload()
         } catch {
             errorMessage = error.localizedDescription
@@ -267,43 +387,116 @@ final class FileBrowserModel: ObservableObject {
 
     private func destinationURL(for name: String) throws -> URL {
         let cleanName = try validatedName(name)
-        let destination = currentURL.appendingPathComponent(cleanName)
+        let destination = currentURL.appendingPathComponent(cleanName).standardizedFileURL
         guard contains(destination) else { throw FileBrowserError.outsideRoot }
         return destination
     }
 
     private func validatedName(_ name: String) throws -> String {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanName.isEmpty, !cleanName.contains("/") else {
+        guard !cleanName.isEmpty,
+              cleanName != ".",
+              cleanName != "..",
+              !cleanName.contains("/") else {
             throw FileBrowserError.invalidName
         }
         return cleanName
     }
 
     private func contains(_ url: URL) -> Bool {
-        let rootPath = root.url.standardizedFileURL.path
-        let candidate = url.standardizedFileURL.path
-        return candidate == rootPath || candidate.hasPrefix(rootPath + "/")
+        containsPath(url.standardizedFileURL.path, in: root.url.standardizedFileURL.path)
     }
 
-    private func grantReadAccess(to url: URL) throws {
-        let path = url.standardizedFileURL.path
-        guard !grantedPaths.contains(path) else { return }
+    private func containsPath(_ candidate: String, in rootPath: String) -> Bool {
+        candidate == rootPath || candidate.hasPrefix(rootPath + "/")
+    }
 
-        var pathBytes = path.utf8CString
+    private func systemTarget(containing url: URL) -> SystemTarget? {
+        let candidate = url.standardizedFileURL.path
+        return supportedSystemTargets.first { containsPath(candidate, in: $0.id) }
+    }
+
+    private func grantSystemAccess(to url: URL) throws {
+        guard let target = systemTarget(containing: url) else {
+            throw FileBrowserError.outsideRoot
+        }
+        guard !grantedTargetPaths.contains(target.id) else { return }
+
+        // ContentView normally runs grant_mg_write() before the browser opens.
+        // Reuse that process-wide extension when the target is already readable.
+        if canEnumerate(target.url) {
+            grantedTargetPaths.insert(target.id)
+            accessNote = "Verified real access to \(target.id) using the process's existing sandbox extension."
+            return
+        }
+
+        var pathBytes = target.queryPath.utf8CString
         let handle = pathBytes.withUnsafeMutableBufferPointer { buffer -> Int64 in
             guard let baseAddress = buffer.baseAddress else { return -255 }
             return bad_query(baseAddress, false, nil, false)
         }
 
         guard handle >= 0 else {
-            throw FileBrowserError.exploitFailed(handle, path)
+            throw FileBrowserError.exploitFailed(handle, target.queryPath)
+        }
+
+        guard canEnumerate(target.url) else {
+            bad_query_release(handle)
+            let reason = String(cString: strerror(errno))
+            throw FileBrowserError.grantDidNotOpenPath(target.id, reason)
         }
 
         sandboxHandles.append(handle)
-        grantedPaths.insert(path)
+        grantedTargetPaths.insert(target.id)
+        accessNote = "bad_query granted and verified real access to \(target.id)."
     }
 
+    private func canEnumerate(_ url: URL) -> Bool {
+        do {
+            _ = try FileManager.default.contentsOfDirectory(atPath: url.path)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func validateSystemFileMutation(_ node: FileNode) throws {
+        guard !node.isDirectory else { throw FileBrowserError.directoryMutationBlocked }
+        guard !isProtectedSystemItem(node.url) else {
+            throw FileBrowserError.protectedSystemItem(node.url.path)
+        }
+    }
+
+    private func isProtectedSystemItem(_ url: URL) -> Bool {
+        url.standardizedFileURL.path == URL(fileURLWithPath: TweakPaths.gestalt).standardizedFileURL.path
+    }
+
+    private func backupSystemFile(_ source: URL) throws -> URL {
+        do {
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let backupRoot = documents.appendingPathComponent("SystemFileBackups", isDirectory: true)
+            let stamp = ISO8601DateFormatter().string(from: Date())
+                .replacingOccurrences(of: ":", with: "-")
+            let backupDirectory = backupRoot.appendingPathComponent(stamp, isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: backupDirectory,
+                withIntermediateDirectories: true
+            )
+
+            let destination = backupDirectory.appendingPathComponent(source.lastPathComponent)
+            try FileManager.default.copyItem(at: source, to: destination)
+
+            let metadata: [String: String] = [
+                "originalPath": source.path,
+                "backupDate": ISO8601DateFormatter().string(from: Date()),
+            ]
+            let metadataData = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+            try metadataData.write(to: backupDirectory.appendingPathComponent("metadata.json"), options: [.atomic])
+            return destination
+        } catch {
+            throw FileBrowserError.backupFailed(error.localizedDescription)
+        }
+    }
 }
 
 struct FileBrowserHomeView: View {
@@ -336,11 +529,11 @@ struct FileBrowserHomeView: View {
                 mode: .sandbox
             ),
             BrowserRoot(
-                title: "/var",
-                subtitle: "Read-only index of paths supported by bad_query",
+                title: "/private/var",
+                subtitle: "Real precise-path access; writes require verification and opt-in",
                 icon: "internaldrive",
-                url: URL(fileURLWithPath: "/var", isDirectory: true),
-                mode: .systemReadOnly
+                url: URL(fileURLWithPath: "/private/var", isDirectory: true),
+                mode: .systemManaged
             ),
         ]
     }
@@ -366,7 +559,7 @@ struct FileBrowserHomeView: View {
                     }
                 }
             } footer: {
-                Text("System paths are intentionally read-only. The /var entry opens specific supported locations instead of requesting the inaccessible root directory.")
+                Text("/private/var is not globally granted. Select a precise target. Only verified targets can be unlocked; system files are backed up before rename or deletion.")
             }
         }
         .navigationTitle("Files")
@@ -379,6 +572,7 @@ struct FileBrowserView: View {
     @State private var pendingName = ""
     @State private var renameNode: FileNode?
     @State private var deleteNode: FileNode?
+    @State private var showUnlockConfirmation = false
 
     private enum CreationKind: String, Identifiable {
         case folder = "New Folder"
@@ -395,11 +589,9 @@ struct FileBrowserView: View {
         List {
             Section {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: model.root.mode == .systemReadOnly ? "lock.fill" : "pencil")
-                        .foregroundStyle(model.root.mode == .systemReadOnly ? .orange : .green)
-                    Text(model.root.mode == .systemReadOnly
-                         ? "Read-only system view. The top level is a path index; real files appear only after iOS grants the selected location."
-                         : "Editable app container. Long-press a row to rename or delete it.")
+                    Image(systemName: statusIcon)
+                        .foregroundStyle(statusColor)
+                    Text(statusText)
                         .font(.footnote)
                 }
             }
@@ -413,9 +605,18 @@ struct FileBrowserView: View {
             }
 
             if let accessNote = model.accessNote {
-                Section("Directory listing") {
-                    Label(accessNote, systemImage: "point.3.connected.trianglepath.dotted")
+                Section("Access verification") {
+                    Label(accessNote, systemImage: "checkmark.shield")
                         .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            if let operationMessage = model.operationMessage {
+                Section("Last operation") {
+                    Label(operationMessage, systemImage: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
             }
 
@@ -437,25 +638,24 @@ struct FileBrowserView: View {
                                 FileNodeRow(node: node, showFullPath: model.isSystemIndex)
                             }
                             .buttonStyle(.plain)
-                            .contextMenu {
-                                editableMenu(for: node)
-                            }
+                            .contextMenu { editableMenu(for: node) }
                         } else {
                             NavigationLink {
                                 FilePreviewView(node: node, allowSharing: model.root.mode == .sandbox)
                             } label: {
                                 FileNodeRow(node: node, showFullPath: model.isSystemIndex)
                             }
-                            .contextMenu {
-                                editableMenu(for: node)
-                            }
+                            .contextMenu { editableMenu(for: node) }
                         }
                     }
                     .onDelete { offsets in
                         guard model.canEdit else { return }
                         for index in offsets {
-                            deleteNode = model.nodes[index]
-                            break
+                            let candidate = model.nodes[index]
+                            if model.canRenameOrDelete(candidate) {
+                                deleteNode = candidate
+                                break
+                            }
                         }
                     }
                 }
@@ -471,13 +671,21 @@ struct FileBrowserView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if model.canGoUp {
-                    Button("Up", systemImage: "arrow.up") {
-                        model.goUp()
-                    }
+                    Button("Up", systemImage: "arrow.up") { model.goUp() }
                 }
 
-                Button("Reload", systemImage: "arrow.clockwise") {
-                    model.reload()
+                Button("Reload", systemImage: "arrow.clockwise") { model.reload() }
+
+                if model.root.mode == .systemManaged && !model.isSystemIndex {
+                    if model.canEdit {
+                        Button("Lock writes", systemImage: "lock.open.fill") {
+                            model.lockSystemEditing()
+                        }
+                    } else if model.canUnlockSystemEditing {
+                        Button("Verify and enable writes", systemImage: "lock.fill") {
+                            showUnlockConfirmation = true
+                        }
+                    }
                 }
 
                 if model.canEdit {
@@ -495,6 +703,12 @@ struct FileBrowserView: View {
                     }
                 }
             }
+        }
+        .alert("Enable system writes?", isPresented: $showUnlockConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Verify and Enable") { model.unlockSystemEditing() }
+        } message: {
+            Text("mond will first verify that iOS granted write access. Existing regular files are backed up to Documents/SystemFileBackups before rename or deletion. System directories and MobileGestalt.plist cannot be renamed or deleted here.")
         }
         .alert(creationKind?.rawValue ?? "Create", isPresented: Binding(
             get: { creationKind != nil },
@@ -518,9 +732,7 @@ struct FileBrowserView: View {
             TextField("Name", text: $pendingName)
             Button("Cancel", role: .cancel) { renameNode = nil }
             Button("Rename") {
-                if let node = renameNode {
-                    model.rename(node, to: pendingName)
-                }
+                if let node = renameNode { model.rename(node, to: pendingName) }
                 renameNode = nil
             }
         }
@@ -533,20 +745,43 @@ struct FileBrowserView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let node = deleteNode {
-                    model.delete(node)
-                }
+                if let node = deleteNode { model.delete(node) }
                 deleteNode = nil
             }
             Button("Cancel", role: .cancel) { deleteNode = nil }
         } message: {
-            Text("This cannot be undone.")
+            Text(model.root.mode == .systemManaged
+                 ? "The regular file will be copied to Documents/SystemFileBackups before deletion."
+                 : "This cannot be undone.")
         }
+    }
+
+    private var statusIcon: String {
+        if model.root.mode == .sandbox { return "pencil" }
+        return model.canEdit ? "lock.open.fill" : "lock.fill"
+    }
+
+    private var statusColor: Color {
+        if model.root.mode == .sandbox || model.canEdit { return .green }
+        return .orange
+    }
+
+    private var statusText: String {
+        if model.root.mode == .sandbox {
+            return "Editable app container. Long-press a row to rename or delete it."
+        }
+        if model.isSystemIndex {
+            return "Select a precise /private/var target. No virtual folders are shown as successful access."
+        }
+        if model.canEdit {
+            return "Real read/write access is verified for this target. System file changes use safety backups."
+        }
+        return "Real read access is required before files appear. Use the lock button to verify and opt in to writes."
     }
 
     @ViewBuilder
     private func editableMenu(for node: FileNode) -> some View {
-        if model.canEdit {
+        if model.canRenameOrDelete(node) {
             Button("Rename", systemImage: "pencil") {
                 pendingName = node.url.lastPathComponent
                 renameNode = node
@@ -604,9 +839,7 @@ private struct FilePreviewView: View {
     var body: some View {
         VStack(spacing: 0) {
             QuickLookPreview(url: node.url)
-
             Divider()
-
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(node.url.path)
@@ -637,9 +870,7 @@ private struct FilePreviewView: View {
 private struct QuickLookPreview: UIViewControllerRepresentable {
     let url: URL
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(url: url)
-    }
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
 
     func makeUIViewController(context: Context) -> QLPreviewController {
         let controller = QLPreviewController()
@@ -655,13 +886,9 @@ private struct QuickLookPreview: UIViewControllerRepresentable {
     final class Coordinator: NSObject, QLPreviewControllerDataSource {
         var url: URL
 
-        init(url: URL) {
-            self.url = url
-        }
+        init(url: URL) { self.url = url }
 
-        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-            1
-        }
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
 
         func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
             url as NSURL
