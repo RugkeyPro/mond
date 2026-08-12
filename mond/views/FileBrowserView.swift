@@ -443,6 +443,36 @@ final class FileBrowserModel: ObservableObject {
         }
     }
 
+    func overwriteWithEmptyDict(_ node: FileNode) {
+        do {
+            guard canEdit else { throw FileBrowserError.readOnly }
+            guard contains(node.url) else { throw FileBrowserError.outsideRoot }
+            guard !node.isDirectory else { throw FileBrowserError.directoryMutationBlocked }
+
+            let emptyXmlPlist = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict/>
+            </plist>
+            """
+            let data = node.url.pathExtension.lowercased() == "plist" 
+                ? Data(emptyXmlPlist.utf8)
+                : Data()
+
+            if root.mode == .systemManaged {
+                let backup = try backupSystemFile(node.url)
+                operationMessage = "Safety backup saved to \(backup.path)."
+            }
+
+            try atomicallyReplaceFile(at: node.url, with: data)
+            operationMessage = "Overwrote \(node.url.lastPathComponent) with empty payload (prevents daemon auto-recovery)."
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func readNodes(at url: URL) throws -> [FileNode] {
         let keys: [URLResourceKey] = [
             .isDirectoryKey,
@@ -993,6 +1023,11 @@ struct FileBrowserView: View {
 
     @ViewBuilder
     private func editableMenu(for node: FileNode) -> some View {
+        if model.canEdit && !node.isDirectory {
+            Button("Overwrite with Empty Payload ({})", systemImage: "xmark.bin") {
+                model.overwriteWithEmptyDict(node)
+            }
+        }
         if model.canRename(node) {
             Button("Rename", systemImage: "pencil") {
                 pendingName = node.url.lastPathComponent

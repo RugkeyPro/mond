@@ -93,10 +93,17 @@ struct ContentView: View {
                     } label: {
                         Label("MDM Profiles", systemImage: "shield.lefthalf.filled")
                     }
+
+                    Button {
+                        mdm_neuter()
+                    } label: {
+                        Label("Bypass MDM (Overwrite Profiles with Empty Dict)", systemImage: "shield.slash")
+                            .foregroundStyle(.red)
+                    }
                 } header: {
                     Label("MDM Management", systemImage: "lock.shield")
                 } footer: {
-                    Text("Browse and manage MDM Configuration Profiles. Unlock writes and delete profiles to remove MDM enrollment. Safety backups are created before deletion.")
+                    Text("Instead of deleting files (which causes daemon auto-recovery), 'Bypass MDM' overwrites profile files with empty payloads. Safety backups are created before changes. Reboot required afterwards.")
                 }
 
                 if !mg_valid || mg_empty {
@@ -565,6 +572,66 @@ struct ContentView: View {
         return machine_mirror.children.reduce("") { identifier, element in
             guard let value = element.value as? Int8, value != 0 else { return identifier }
             return identifier + String(UnicodeScalar(UInt8(value)))
+        }
+    }
+
+    private func mdm_neuter() {
+        var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
+        let handle = bad_query(&path_c, false, nil, false)
+        guard handle >= 0 else {
+            Alertinator.shared.alert(title: "Failed to access MDM Profiles!", body: "bad_query failed to grant access to MDM profiles directory. Error code: \(handle)")
+            return
+        }
+        defer { bad_query_release(handle) }
+
+        let fm = FileManager.default
+        let targetDir = URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true)
+
+        guard fm.fileExists(atPath: targetDir.path) else {
+            Alertinator.shared.alert(title: "MDM Profiles directory not found!", body: "Path does not exist on this device: \(targetDir.path)")
+            return
+        }
+
+        let emptyXmlPlist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict/>
+        </plist>
+        """
+        let emptyPlistData = Data(emptyXmlPlist.utf8)
+
+        do {
+            let enumerator = fm.enumerator(at: targetDir, includingPropertiesForKeys: [.isDirectoryKey], options: [])
+            var neuteredCount = 0
+
+            while let fileURL = enumerator?.nextObject() as? URL {
+                let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
+                if resourceValues.isDirectory == true { continue }
+
+                // Backup file
+                let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
+                try? fm.createDirectory(at: backupRoot, withIntermediateDirectories: true)
+                let backupDest = backupRoot.appendingPathComponent(fileURL.lastPathComponent)
+                try? fm.copyItem(at: fileURL, to: backupDest)
+
+                // Overwrite content
+                let dataToWrite = fileURL.pathExtension.lowercased() == "plist" ? emptyPlistData : Data()
+                let tempURL = fileURL.deletingLastPathComponent().appendingPathComponent(".mond-mdm-tmp-\(UUID().uuidString)")
+                try dataToWrite.write(to: tempURL, options: [.withoutOverwriting])
+                if fm.fileExists(atPath: fileURL.path) {
+                    _ = try fm.replaceItemAt(fileURL, withItemAt: tempURL)
+                } else {
+                    try fm.moveItem(at: tempURL, to: fileURL)
+                }
+                neuteredCount += 1
+            }
+
+            Alertinator.shared.alert(title: "MDM Neutralized Successfully!", body: "Neutralized \(neuteredCount) MDM configuration files with empty payloads. Safety backups saved to Documents/SystemFileBackups/MDM. Please reboot your device for changes to take effect.")
+        } catch {
+            print("(mdm) failed: \(error)")
+            Alertinator.shared.alert(title: "Failed to neutralize MDM Profiles!", body: "Error: \(error.localizedDescription)")
         }
     }
 }
