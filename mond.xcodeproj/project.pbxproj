@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BAA208383020090D001C72B6 /* BAExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; productRef = BAF44B3F300858B300739BFC /* BAExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BAA208383020090D001C72B6 /* BAExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BAF44B3F300858B300739BFC /* BAExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CCA208383020090D001C72B6 /* PartyUI in Frameworks */ = {isa = PBXBuildFile; productRef = CCA208373020090D001C72B6 /* PartyUI */; };
 /* End PBXBuildFile section */
 
