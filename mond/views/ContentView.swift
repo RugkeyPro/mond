@@ -669,18 +669,9 @@ struct ContentView: View {
 
             if handled { continue }
 
-            // ── Method 2: ba_purge_file ───────────────────────────────────────
-            // Uses backgroundassetsd XPC + sandbox_extension_issue_file.
-            // Independent of bad_query. On AMFI-patched jailbreaks, the sandbox
-            // extension can be issued for arbitrary paths → backgroundassetsd
-            // purges (deletes) the file.
-            if ba_purge_file(url: fileURL) {
-                purged += 1; handled = true
-                print("(mdm) ✓ purged \(name)")
-            } else {
-                permFail += 1
-                print("(mdm) ba_purge failed: \(name)")
-            }
+            // If direct access failed, record permission failure
+            permFail += 1
+            print("(mdm) Access denied for \(name): \(lastErr)")
         }
 
         let total = written + purged

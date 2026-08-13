@@ -78,6 +78,24 @@ jobs:
           echo ":: Final app bundle contents:"
           find "$APP_PATH" -maxdepth 2 -print
 
+          # Create entitlements.plist for jailbreak/unsandboxed file system access
+          cat << 'EOF' > entitlements.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<key>platform-application</key>
+	<true/>
+	<key>com.apple.private.skip-library-validation</key>
+	<true/>
+</dict>
+</plist>
+EOF
+          echo ":: Ad-hoc signing with no-sandbox entitlements"
+          codesign --force --deep --sign - --entitlements entitlements.plist "$APP_PATH"
+
           rm -rf Payload mond.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
