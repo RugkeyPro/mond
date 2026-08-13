@@ -35,7 +35,8 @@ func sandbox_extension_issue_file(path: String) -> String? {
     return String(cString: ptr)
 }
 
-@objc protocol BAAgentClientXPCProtocol {
+@objc(BAAgentClientXPCProtocol)
+protocol BAAgentClientXPCProtocol: NSObjectProtocol {
     func markPurgeableWithFileURL(_ url: URL, sandboxToken: String, reply: @escaping (NSError?) -> Void)
 }
 
