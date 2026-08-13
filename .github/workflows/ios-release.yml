@@ -49,6 +49,17 @@ jobs:
             cp -R "$APPEX_PATH" "$APP_PATH/PlugIns/"
           fi
 
+          # Patch Info.plist: inject UIBackgroundModes if missing
+          # (Xcode's auto-generated plist omits this under CODE_SIGNING_ALLOWED=NO)
+          PLIST="$APP_PATH/Info.plist"
+          if ! /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" 2>/dev/null; then
+            echo ":: Injecting UIBackgroundModes into Info.plist"
+            /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string background-download" "$PLIST"
+          fi
+          echo ":: Info.plist UIBackgroundModes:"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST"
+
           echo ":: Final app bundle contents:"
           find "$APP_PATH" -maxdepth 2 -print
 
