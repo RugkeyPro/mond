@@ -98,7 +98,7 @@ func jailbreak_unsandbox() -> String? {
     // Try to load a permissive sandbox profile
     if let libsbx = dlopen("/usr/lib/system/libsystem_sandbox.dylib", RTLD_NOW) {
         // sandbox_init with no-internet profile (least restrictive built-in)
-        if let sym = dlsym(libsbx, "sandbox_free_error") {
+        if dlsym(libsbx, "sandbox_free_error") != nil {
             print("(jb) sandbox_free_error found but cannot remove sandbox at runtime")
         }
         dlclose(libsbx)
@@ -128,10 +128,10 @@ func is_jailbroken() -> Bool {
             return true
         }
     }
-    // Try fork() — sandboxed apps can't fork
-    let pid = Darwin.fork()
-    if pid >= 0 {
-        if pid > 0 { Darwin.kill(pid, SIGTERM) } // kill child
+    // Check if we can access typical jailbreak-only paths via opendir
+    // (fork() is unavailable on iOS)
+    if let dir = opendir("/var/jb") {
+        closedir(dir)
         return true
     }
     return false
