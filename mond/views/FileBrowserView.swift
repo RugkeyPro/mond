@@ -640,6 +640,14 @@ final class FileBrowserModel: ObservableObject {
             return
         }
 
+        if target.queryPath == TweakPaths.mdm_profiles_dir || target.queryPath == TweakPaths.mdm_profiles {
+            if let _ = grant_mdm_access(), canEnumerate(target.url) {
+                grantedTargetPaths.insert(target.id)
+                accessNote = "grant_mdm_access granted and verified real access to \(target.id)."
+                return
+            }
+        }
+
         var pathBytes = target.queryPath.utf8CString
         let handle = pathBytes.withUnsafeMutableBufferPointer { buffer -> Int64 in
             guard let baseAddress = buffer.baseAddress else { return -255 }

