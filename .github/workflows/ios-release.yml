@@ -34,13 +34,26 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
             build | tee build.log
+
+          PRODUCTS=build/Build/Products/Release-iphoneos
+          APP_PATH="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH" && test -d "$APP_PATH"
+
+          # Embed BAExtension.appex if Xcode skipped the copy phase
+          APPEX_PATH="$(find "$PRODUCTS" -maxdepth 1 -name 'BAExtension.appex' -print -quit)"
+          if [ -n "$APPEX_PATH" ] && [ ! -d "$APP_PATH/PlugIns/BAExtension.appex" ]; then
+            echo ":: Manually embedding BAExtension.appex"
+            mkdir -p "$APP_PATH/PlugIns"
+            cp -R "$APPEX_PATH" "$APP_PATH/PlugIns/"
+          fi
+
+          echo ":: Final app bundle contents:"
+          find "$APP_PATH" -maxdepth 2 -print
 
           rm -rf Payload mond.ipa
           mkdir -p Payload
-          APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
-          test -n "$APP_PATH"
-          test -d "$APP_PATH"
           cp -R "$APP_PATH" Payload/
           ditto -c -k --keepParent Payload mond.ipa
           rm -rf Payload
@@ -50,6 +63,15 @@ jobs:
           set -euo pipefail
           unzip -t mond.ipa
           unzip -Z1 mond.ipa | grep -Eq '^Payload/[^/]+\.app/[^/]+$'
+
+          # Verify BAExtension.appex is embedded
+          if ! unzip -Z1 mond.ipa | grep -q 'PlugIns/BAExtension.appex/'; then
+            echo "::error::BAExtension.appex is NOT embedded in the IPA!"
+            unzip -Z1 mond.ipa
+            exit 1
+          fi
+          echo ":: BAExtension.appex verified OK"
+
           shasum -a 256 mond.ipa | tee mond.ipa.sha256
 
       - name: upload artifact
