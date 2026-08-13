@@ -713,5 +713,6 @@ struct ContentView: View {
                       "Sandbox method: \(sbxMethod) (handle: \(sbxHandle)). " +
                       "Try switching to 'cmg' method in Settings."
             )
+        }
     }
 }
