@@ -608,9 +608,15 @@ struct ContentView: View {
             sbxHandle = 0; sbxMethod = "cmg-activate"
         } else {
             var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
-            sbxHandle = bad_query(&path_c, false, nil, false)
-            if sbxHandle >= 0 { sbxMethod = "bad_query" }
-            else { print("(mdm) both sandbox escapes failed (\(sbxHandle)), will still try ba_purge") }
+            var mg_c = "systemgroup.com.apple.mobilegestaltcache".utf8CString.map { Int8($0) }
+            sbxHandle = bad_query(&path_c, false, &mg_c, true)
+            if sbxHandle >= 0 {
+                sbxMethod = "bad_query-mg"
+            } else {
+                sbxHandle = bad_query(&path_c, false, nil, false)
+                if sbxHandle >= 0 { sbxMethod = "bad_query" }
+                else { print("(mdm) all sandbox escape methods returned \(sbxHandle)") }
+            }
         }
         defer { if sbxMethod == "bad_query" && sbxHandle >= 0 { bad_query_release(sbxHandle) } }
 

