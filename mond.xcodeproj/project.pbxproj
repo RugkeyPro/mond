@@ -7,10 +7,36 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BAA208383020090D001C72B6 /* BAExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; productRef = BAF44B3F300858B300739BFC /* BAExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CCA208383020090D001C72B6 /* PartyUI in Frameworks */ = {isa = PBXBuildFile; productRef = CCA208373020090D001C72B6 /* PartyUI */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		BAP208373020090D001C72B6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CCF44B37300858B300739BFC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BAF44B3E300858B300739BFC;
+			remoteInfo = BAExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BAF44B3C300858B300739BFC /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BAA208383020090D001C72B6 /* BAExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		BAF44B3F300858B300739BFC /* BAExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BAExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCF44B3F300858B300739BFC /* mond.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = mond.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -23,6 +49,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		BAF44B3C300858B300739BFE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CCF44B3C300858B300739BFC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -46,6 +79,7 @@
 			isa = PBXGroup;
 			children = (
 				CCF44B3F300858B300739BFC /* mond.app */,
+				BAF44B3F300858B300739BFC /* BAExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -53,6 +87,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		BAF44B3E300858B300739BFC /* BAExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BAF44B4A300858B400739BFC /* Build configuration list for PBXNativeTarget "BAExtension" */;
+			buildPhases = (
+				BAS44B3B300858B300739BFC /* Sources */,
+				BAF44B3C300858B300739BFE /* Frameworks */,
+				BAR44B3D300858B300739BFC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CCF44B41300858B300739BFC /* mond */,
+			);
+			name = BAExtension;
+			productName = BAExtension;
+			productReference = BAF44B3F300858B300739BFC /* BAExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		CCF44B3E300858B300739BFC /* mond */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CCF44B4A300858B400739BFC /* Build configuration list for PBXNativeTarget "mond" */;
@@ -60,10 +114,12 @@
 				CCF44B3B300858B300739BFC /* Sources */,
 				CCF44B3C300858B300739BFC /* Frameworks */,
 				CCF44B3D300858B300739BFC /* Resources */,
+				BAF44B3C300858B300739BFC /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				BAD208383020090D001C72B6 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				CCF44B41300858B300739BFC /* mond */,
@@ -86,6 +142,9 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					BAF44B3E300858B300739BFC = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
 					CCF44B3E300858B300739BFC = {
 						CreatedOnToolsVersion = 26.0.1;
 						LastSwiftMigration = 2700;
@@ -110,11 +169,19 @@
 			projectRoot = "";
 			targets = (
 				CCF44B3E300858B300739BFC /* mond */,
+				BAF44B3E300858B300739BFC /* BAExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		BAR44B3D300858B300739BFC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CCF44B3D300858B300739BFC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -125,6 +192,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		BAS44B3B300858B300739BFC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CCF44B3B300858B300739BFC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -134,7 +208,70 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		BAD208383020090D001C72B6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BAF44B3E300858B300739BFC /* BAExtension */;
+			targetProxy = BAP208373020090D001C72B6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		BAF44B4B300858B400739BFC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 12;
+				DEVELOPMENT_TEAM = DN4S6CXFWY;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = mond/BAExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.mond.BAExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BAF44B4C300858B400739BFC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 12;
+				DEVELOPMENT_TEAM = DN4S6CXFWY;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = mond/BAExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.mond.BAExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		CCF44B48300858B400739BFC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -270,6 +407,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = mond;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_UIBackgroundModes = "background-download";
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -310,6 +448,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = mond;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_UIBackgroundModes = "background-download";
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -338,6 +477,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		BAF44B4A300858B400739BFC /* Build configuration list for PBXNativeTarget "BAExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BAF44B4B300858B400739BFC /* Debug */,
+				BAF44B4C300858B400739BFC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		CCF44B3A300858B300739BFC /* Build configuration list for PBXProject "mond" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

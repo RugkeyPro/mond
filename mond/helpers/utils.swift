@@ -23,7 +23,7 @@ func is_debugged() -> Bool {
 
 func is_supported() -> Bool {
     let v = ProcessInfo.processInfo.operatingSystemVersion
-    return v.majorVersion >= 17 && v.majorVersion <= 27
+    return v.majorVersion >= 16 && v.majorVersion <= 27
 }
 
 func hasHomeButton() -> Bool {
