@@ -601,12 +601,22 @@ struct ContentView: View {
         var sbxHandle: Int64 = -99
         var sbxMethod = "none"
 
+        // Method 0: Jailbreak runtime unsandbox (Dopamine / palera1n / generic)
+        // This dynamically removes sandbox restrictions via jailbreak daemon APIs.
+        // No entitlements or signing tool changes needed — works with 万能签名.
+        if let method = jailbreak_unsandbox() {
+            sbxHandle = 0; sbxMethod = method
+            print("(mdm) jailbreak unsandbox succeeded: \(method)")
+        }
+
         // Method A: sandbox_extension_issue_file (direct syscall, no containermanagerd)
         // On AMFI-patched jailbreaks this issues a token for ANY path
-        if let token = sandbox_extension_issue_file(path: TweakPaths.mdm_profiles_dir) {
-            if let h = sandbox_extension_consume(token), h >= 0 {
-                sbxHandle = h; sbxMethod = "sbx-issue-dir"
-                print("(mdm) sandbox_extension_issue_file+consume succeeded for dir: handle=\(h)")
+        if sbxHandle < 0 {
+            if let token = sandbox_extension_issue_file(path: TweakPaths.mdm_profiles_dir) {
+                if let h = sandbox_extension_consume(token), h >= 0 {
+                    sbxHandle = h; sbxMethod = "sbx-issue-dir"
+                    print("(mdm) sandbox_extension_issue_file+consume succeeded for dir: handle=\(h)")
+                }
             }
         }
 
@@ -730,8 +740,9 @@ struct ContentView: View {
                 body: "Escape: \(escInfo). Access denied for \(permFail) file(s). " +
                       "\(noEntry) not found. Last error: \(lastErr.isEmpty ? "unknown" : lastErr). " +
                       "iOS \(ProcessInfo.processInfo.operatingSystemVersionString).\n\n" +
-                      "Ensure your signing tool applies entitlements.plist " +
-                      "with com.apple.private.security.no-sandbox enabled."
+                      "Jailbreak detected: \(is_jailbroken() ? "Yes" : "No"). " +
+                      "This feature requires a jailbreak (Dopamine/palera1n) " +
+                      "or install via TrollStore. 万能签名 cannot grant sandbox escape privileges."
             )
         }
     }
