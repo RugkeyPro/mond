@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		BAA208383020090D001C72B6 /* BAExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BAF44B3F300858B300739BFC /* BAExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		BAS208383020090D001C72B6 /* BAExtensionDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAS44B3F300858B300739BFC /* BAExtensionDelegate.swift */; };
+		BAM208383020090D001C72B6 /* BAExtensionDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = BAM44B3F300858B300739BFC /* BAExtensionDelegate.m */; };
 		CCA208383020090D001C72B6 /* PartyUI in Frameworks */ = {isa = PBXBuildFile; productRef = CCA208373020090D001C72B6 /* PartyUI */; };
 /* End PBXBuildFile section */
 
@@ -38,7 +38,8 @@
 
 /* Begin PBXFileReference section */
 		BAF44B3F300858B300739BFC /* BAExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BAExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		BAS44B3F300858B300739BFC /* BAExtensionDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BAExtensionDelegate.swift; sourceTree = "<group>"; };
+		BAH44B3F300858B300739BFC /* BAExtensionDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BAExtensionDelegate.h; sourceTree = "<group>"; };
+		BAM44B3F300858B300739BFC /* BAExtensionDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BAExtensionDelegate.m; sourceTree = "<group>"; };
 		BAI44B3F300858B300739BFC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		CCF44B3F300858B300739BFC /* mond.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = mond.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -73,7 +74,8 @@
 		BAF44B36300858B300739BFC /* BAExtension */ = {
 			isa = PBXGroup;
 			children = (
-				BAS44B3F300858B300739BFC /* BAExtensionDelegate.swift */,
+				BAH44B3F300858B300739BFC /* BAExtensionDelegate.h */,
+				BAM44B3F300858B300739BFC /* BAExtensionDelegate.m */,
 				BAI44B3F300858B300739BFC /* Info.plist */,
 			);
 			path = BAExtension;
@@ -206,7 +208,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BAS208383020090D001C72B6 /* BAExtensionDelegate.swift in Sources */,
+				BAM208383020090D001C72B6 /* BAExtensionDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -246,12 +248,6 @@
 				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.mond.BAExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -274,11 +270,6 @@
 				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.roooot.mond.BAExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
