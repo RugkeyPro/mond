@@ -576,17 +576,7 @@ struct ContentView: View {
     }
 
     private func mdm_neuter() {
-        var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
-        let handle = bad_query(&path_c, false, nil, false)
-        if handle < 0 {
-            print("(mdm) bad_query returned \(handle), falling back to BackgroundAssets XPC escape (ba_purge)")
-        }
-        defer {
-            if handle >= 0 { bad_query_release(handle) }
-        }
-
         let fm = FileManager.default
-        let targetDir = URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true)
 
         let emptyXmlPlist = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -600,7 +590,44 @@ struct ContentView: View {
         var neuteredCount = 0
         var purgedCount = 0
 
-        // Target files list
+        // Step 1: Try new CMG-style sandbox escape (container_object_sandbox_extension_activate)
+        // This works on iOS 26.5/26.6 where bad_query returns -4 for configurationprofiles
+        var targetDir = URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true)
+        var sbxHandle: Int64 = -4
+        var sbxMethod = "none"
+
+        if let activatedBase = grant_mdm_access() {
+            // The activated base path is the systemgroup container root;
+            // ConfigurationProfiles lives at Library/ConfigurationProfiles relative to it
+            // The base path returned is typically /.../systemgroup.com.apple.configurationprofiles/Library/Caches
+            // We need Library/ConfigurationProfiles — go up from Caches to Library, then into ConfigurationProfiles
+            let baseURL = URL(fileURLWithPath: activatedBase)
+            let libraryURL = baseURL.deletingLastPathComponent() // up from Caches to Library
+            let configProfilesURL = libraryURL.appendingPathComponent("ConfigurationProfiles")
+            if fm.fileExists(atPath: configProfilesURL.path) {
+                targetDir = configProfilesURL
+            }
+            sbxHandle = 0  // success
+            sbxMethod = "cmg-activate"
+            print("(mdm) grant_mdm_access succeeded, targetDir: \(targetDir.path)")
+        } else {
+            // Step 2: Fall back to bad_query (works on older iOS, may fail on 26.5+)
+            var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
+            sbxHandle = bad_query(&path_c, false, nil, false)
+            if sbxHandle >= 0 {
+                sbxMethod = "bad_query"
+                print("(mdm) bad_query succeeded, handle: \(sbxHandle)")
+            } else {
+                print("(mdm) bad_query returned \(sbxHandle), sandbox escape failed")
+            }
+        }
+
+        defer {
+            if sbxMethod == "bad_query" && sbxHandle >= 0 {
+                bad_query_release(sbxHandle)
+            }
+        }
+
         let targetFiles = [
             targetDir.appendingPathComponent("CloudConfigurationDetails.plist"),
             targetDir.appendingPathComponent("ClientTruth.plist"),
@@ -611,9 +638,28 @@ struct ContentView: View {
             targetDir.appendingPathComponent("ProfileTruth.plist")
         ]
 
-        for fileURL in targetFiles {
-            if !fm.fileExists(atPath: fileURL.path) { continue }
+        let existingFiles = targetFiles.filter { fm.fileExists(atPath: $0.path) }
 
+        // If sandbox escape failed entirely, report it clearly
+        if sbxHandle < 0 && existingFiles.isEmpty {
+            Alertinator.shared.alert(
+                title: "MDM Access Failed",
+                body: "Could not gain sandbox access to ConfigurationProfiles (error: \(sbxHandle)). " +
+                      "If you have no MDM profiles, this is expected. " +
+                      "If you do have MDM profiles, try switching to 'cmg' method in Settings."
+            )
+            return
+        }
+
+        if existingFiles.isEmpty {
+            Alertinator.shared.alert(
+                title: "No MDM Profiles Found",
+                body: "No active MDM profile files were found at \(targetDir.path). Your device may not be enrolled in MDM."
+            )
+            return
+        }
+
+        for fileURL in existingFiles {
             // Backup file
             let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
@@ -622,10 +668,13 @@ struct ContentView: View {
             try? fm.copyItem(at: fileURL, to: backupDest)
 
             var success = false
-            if handle >= 0 {
+
+            // Try direct write (works when sandbox escape succeeded)
+            if sbxHandle >= 0 {
                 do {
                     let dataToWrite = fileURL.pathExtension.lowercased() == "plist" ? emptyPlistData : Data()
-                    let tempURL = fileURL.deletingLastPathComponent().appendingPathComponent(".mond-mdm-tmp-\(UUID().uuidString)")
+                    let tempURL = fileURL.deletingLastPathComponent()
+                        .appendingPathComponent(".mond-mdm-tmp-\(UUID().uuidString)")
                     try dataToWrite.write(to: tempURL, options: [.withoutOverwriting])
                     if fm.fileExists(atPath: fileURL.path) {
                         _ = try fm.replaceItemAt(fileURL, withItemAt: tempURL)
@@ -635,23 +684,34 @@ struct ContentView: View {
                     neuteredCount += 1
                     success = true
                 } catch {
-                    print("(mdm) direct write failed: \(error)")
+                    print("(mdm) direct write failed for \(fileURL.lastPathComponent): \(error)")
                 }
             }
 
+            // Fallback: BackgroundAssets XPC purge (deletes file instead of overwriting)
             if !success {
-                // Fallback to BackgroundAssets (BAAgent) purge exploit (works on iOS 17 - 25)
                 if ba_purge_file(url: fileURL) {
                     purgedCount += 1
+                } else {
+                    print("(mdm) ba_purge also failed for \(fileURL.lastPathComponent)")
                 }
             }
         }
 
         let total = neuteredCount + purgedCount
         if total > 0 {
-            Alertinator.shared.alert(title: "MDM Processed Successfully!", body: "Neutralized/Purged \(total) MDM configuration profiles (\(neuteredCount) empty-overwritten, \(purgedCount) BA-purged). Safety backups saved to Documents/SystemFileBackups/MDM. Please reboot your device for changes to take effect.")
+            Alertinator.shared.alert(
+                title: "MDM Bypassed Successfully!",
+                body: "Processed \(total) MDM profile(s) via \(sbxMethod) " +
+                      "(\(neuteredCount) overwritten with empty dict, \(purgedCount) purged). " +
+                      "Safety backups saved to Documents/SystemFileBackups/MDM. Reboot required."
+            )
         } else {
-            Alertinator.shared.alert(title: "MDM Processing Notice", body: "No active MDM profiles were found or modified at \(targetDir.path). Error code: \(handle).")
-        }
+            Alertinator.shared.alert(
+                title: "MDM Processing Failed",
+                body: "Found \(existingFiles.count) MDM profile file(s) but could not modify any. " +
+                      "Sandbox method: \(sbxMethod) (handle: \(sbxHandle)). " +
+                      "Try switching to 'cmg' method in Settings."
+            )
     }
 }
