@@ -578,19 +578,15 @@ struct ContentView: View {
     private func mdm_neuter() {
         var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
         let handle = bad_query(&path_c, false, nil, false)
-        guard handle >= 0 else {
-            Alertinator.shared.alert(title: "Failed to access MDM Profiles!", body: "bad_query failed to grant access to MDM profiles directory. Error code: \(handle)")
-            return
+        if handle < 0 {
+            print("(mdm) bad_query returned \(handle), falling back to BackgroundAssets XPC escape (ba_purge)")
         }
-        defer { bad_query_release(handle) }
+        defer {
+            if handle >= 0 { bad_query_release(handle) }
+        }
 
         let fm = FileManager.default
         let targetDir = URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true)
-
-        guard fm.fileExists(atPath: targetDir.path) else {
-            Alertinator.shared.alert(title: "MDM Profiles directory not found!", body: "Path does not exist on this device: \(targetDir.path)")
-            return
-        }
 
         let emptyXmlPlist = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -601,37 +597,61 @@ struct ContentView: View {
         """
         let emptyPlistData = Data(emptyXmlPlist.utf8)
 
-        do {
-            let enumerator = fm.enumerator(at: targetDir, includingPropertiesForKeys: [.isDirectoryKey], options: [])
-            var neuteredCount = 0
+        var neuteredCount = 0
+        var purgedCount = 0
 
-            while let fileURL = enumerator?.nextObject() as? URL {
-                let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
-                if resourceValues.isDirectory == true { continue }
+        // Target files list
+        let targetFiles = [
+            targetDir.appendingPathComponent("CloudConfigurationDetails.plist"),
+            targetDir.appendingPathComponent("ClientTruth.plist"),
+            targetDir.appendingPathComponent("CloudConfigurationSetAsideDetails.plist"),
+            targetDir.appendingPathComponent("MDM.plist"),
+            targetDir.appendingPathComponent("MCProfileEvents.plist"),
+            targetDir.appendingPathComponent("MDMEvents.plist"),
+            targetDir.appendingPathComponent("ProfileTruth.plist")
+        ]
 
-                // Backup file
-                let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
-                try? fm.createDirectory(at: backupRoot, withIntermediateDirectories: true)
-                let backupDest = backupRoot.appendingPathComponent(fileURL.lastPathComponent)
-                try? fm.copyItem(at: fileURL, to: backupDest)
+        for fileURL in targetFiles {
+            if !fm.fileExists(atPath: fileURL.path) { continue }
 
-                // Overwrite content
-                let dataToWrite = fileURL.pathExtension.lowercased() == "plist" ? emptyPlistData : Data()
-                let tempURL = fileURL.deletingLastPathComponent().appendingPathComponent(".mond-mdm-tmp-\(UUID().uuidString)")
-                try dataToWrite.write(to: tempURL, options: [.withoutOverwriting])
-                if fm.fileExists(atPath: fileURL.path) {
-                    _ = try fm.replaceItemAt(fileURL, withItemAt: tempURL)
-                } else {
-                    try fm.moveItem(at: tempURL, to: fileURL)
+            // Backup file
+            let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
+            try? fm.createDirectory(at: backupRoot, withIntermediateDirectories: true)
+            let backupDest = backupRoot.appendingPathComponent(fileURL.lastPathComponent)
+            try? fm.copyItem(at: fileURL, to: backupDest)
+
+            var success = false
+            if handle >= 0 {
+                do {
+                    let dataToWrite = fileURL.pathExtension.lowercased() == "plist" ? emptyPlistData : Data()
+                    let tempURL = fileURL.deletingLastPathComponent().appendingPathComponent(".mond-mdm-tmp-\(UUID().uuidString)")
+                    try dataToWrite.write(to: tempURL, options: [.withoutOverwriting])
+                    if fm.fileExists(atPath: fileURL.path) {
+                        _ = try fm.replaceItemAt(fileURL, withItemAt: tempURL)
+                    } else {
+                        try fm.moveItem(at: tempURL, to: fileURL)
+                    }
+                    neuteredCount += 1
+                    success = true
+                } catch {
+                    print("(mdm) direct write failed: \(error)")
                 }
-                neuteredCount += 1
             }
 
-            Alertinator.shared.alert(title: "MDM Neutralized Successfully!", body: "Neutralized \(neuteredCount) MDM configuration files with empty payloads. Safety backups saved to Documents/SystemFileBackups/MDM. Please reboot your device for changes to take effect.")
-        } catch {
-            print("(mdm) failed: \(error)")
-            Alertinator.shared.alert(title: "Failed to neutralize MDM Profiles!", body: "Error: \(error.localizedDescription)")
+            if !success {
+                // Fallback to BackgroundAssets (BAAgent) purge exploit (works on iOS 17 - 25)
+                if ba_purge_file(url: fileURL) {
+                    purgedCount += 1
+                }
+            }
+        }
+
+        let total = neuteredCount + purgedCount
+        if total > 0 {
+            Alertinator.shared.alert(title: "MDM Processed Successfully!", body: "Neutralized/Purged \(total) MDM configuration profiles (\(neuteredCount) empty-overwritten, \(purgedCount) BA-purged). Safety backups saved to Documents/SystemFileBackups/MDM. Please reboot your device for changes to take effect.")
+        } else {
+            Alertinator.shared.alert(title: "MDM Processing Notice", body: "No active MDM profiles were found or modified at \(targetDir.path). Error code: \(handle).")
         }
     }
 }
