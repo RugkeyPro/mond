@@ -26,8 +26,6 @@
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.background-asset-downloader-extension</string>
-		<key>NSExtensionPrincipalClass</key>
-		<string>BAExtension.BAExtensionDelegate</string>
 	</dict>
 </dict>
 </plist>

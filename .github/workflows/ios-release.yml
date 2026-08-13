@@ -60,6 +60,21 @@ jobs:
           echo ":: Info.plist UIBackgroundModes:"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST"
 
+          # Strip NSExtensionPrincipalClass from BAExtension Info.plist
+          # ROOT CAUSE: installd validates this ObjC class name at install time.
+          # The Swift-qualified name 'BAExtension.BAExtensionDelegate' is not a valid
+          # ObjC class name, so installd rejects the entire app bundle.
+          # The working BF0QN reference app omits this key entirely.
+          APPEX_PLIST="$APP_PATH/PlugIns/BAExtension.appex/Info.plist"
+          if [ -f "$APPEX_PLIST" ]; then
+            if /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPrincipalClass" "$APPEX_PLIST" 2>/dev/null; then
+              echo ":: Removing NSExtensionPrincipalClass from BAExtension/Info.plist"
+              /usr/libexec/PlistBuddy -c "Delete :NSExtension:NSExtensionPrincipalClass" "$APPEX_PLIST"
+            fi
+            echo ":: BAExtension NSExtension:"
+            /usr/libexec/PlistBuddy -c "Print :NSExtension" "$APPEX_PLIST"
+          fi
+
           echo ":: Final app bundle contents:"
           find "$APP_PATH" -maxdepth 2 -print
 
