@@ -689,6 +689,7 @@ struct ContentView: View {
         try? fm.createDirectory(at: backupRoot, withIntermediateDirectories: true)
 
         var written  = 0
+        var purged   = 0
         var noEntry  = 0
         var permFail = 0
         var lastErr  = ""
@@ -752,11 +753,22 @@ struct ContentView: View {
             }
 
             if handled { continue }
+
+            // ── Method: BackgroundAssets Purge (ba_purge_file) ───────────────
+            // Uses LaunchServices _LSRegisterURL + backgroundassetsd markPurgeable
+            // as extracted from BASandboxEscape.ipa.
+            if ba_purge_file(url: fileURL) {
+                purged += 1
+                handled = true
+                print("(mdm) ✓ ba_purge succeeded for \(name)")
+                continue
+            }
+
             permFail += 1
             print("(mdm) all methods denied for \(name): \(lastErr)")
         }
 
-        let total = written
+        let total = written + purged
         let escInfo = sbxHandle >= 0 ? sbxMethod : "none(\(sbxHandle))"
 
         if total > 0 {
