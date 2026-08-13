@@ -577,51 +577,6 @@ struct ContentView: View {
 
     private func mdm_neuter() {
         let targetDir = URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true)
-        var sbxHandle: Int64 = -4
-        var sbxMethod = "none"
-
-        // Step 1: Try activate-based escape (works on iOS 26.5/26.6)
-        if let _ = grant_mdm_access() {
-            sbxHandle = 0
-            sbxMethod = "cmg-activate"
-            print("(mdm) grant_mdm_access succeeded")
-        } else {
-            // Step 2: Fall back to bad_query (works on older iOS)
-            var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
-            sbxHandle = bad_query(&path_c, false, nil, false)
-            if sbxHandle >= 0 {
-                sbxMethod = "bad_query"
-                print("(mdm) bad_query succeeded: \(sbxHandle)")
-            } else {
-                print("(mdm) bad_query returned \(sbxHandle)")
-            }
-        }
-        defer {
-            if sbxMethod == "bad_query" && sbxHandle >= 0 { bad_query_release(sbxHandle) }
-        }
-
-        if sbxHandle < 0 {
-            Alertinator.shared.alert(
-                title: "MDM Access Failed",
-                body: "All sandbox escape methods failed (code: \(sbxHandle)). " +
-                      "iOS \(ProcessInfo.processInfo.operatingSystemVersionString) blocked access to ConfigurationProfiles."
-            )
-            return
-        }
-
-        // ── Use Darwin.open()/write() directly ──────────────────────────────────
-        // FileManager wraps opendir()/stat() which can be sandbox-filtered even
-        // after a process-wide sandbox extension is active. Darwin syscalls bypass
-        // that extra filter layer.
-
-        let emptyPlist = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict/>
-        </plist>
-        """
-        let emptyPlistBytes = Array(emptyPlist.utf8)
 
         let knownFiles = [
             "CloudConfigurationDetails.plist",
@@ -633,94 +588,126 @@ struct ContentView: View {
             "ProfileTruth.plist"
         ]
 
+        let emptyPlist = """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict/>
+</plist>
+"""
+        let emptyPlistBytes = Array(emptyPlist.utf8)
+
+        // ── Sandbox Escape Attempts ────────────────────────────────────────────
+        // NOTE: Even when BOTH fail (code -4 on iOS 26.5/26.6) we still proceed.
+        // ba_purge_file uses a completely independent path (backgroundassetsd XPC)
+        // and may succeed on AMFI-patched jailbreaks regardless of escape result.
+        var sbxHandle: Int64 = -99
+        var sbxMethod = "none"
+
+        if let _ = grant_mdm_access() {
+            sbxHandle = 0; sbxMethod = "cmg-activate"
+        } else {
+            var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
+            sbxHandle = bad_query(&path_c, false, nil, false)
+            if sbxHandle >= 0 { sbxMethod = "bad_query" }
+            else { print("(mdm) both sandbox escapes failed (\(sbxHandle)), will still try ba_purge") }
+        }
+        defer { if sbxMethod == "bad_query" && sbxHandle >= 0 { bad_query_release(sbxHandle) } }
+
         let fm = FileManager.default
         let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
         try? fm.createDirectory(at: backupRoot, withIntermediateDirectories: true)
 
-        var written = 0
-        var notFound = 0
-        var permDenied = 0
-        var lastPermError = ""
+        var written = 0     // overwritten via Darwin.write
+        var purged  = 0     // deleted via ba_purge_file
+        var noEntry = 0     // ENOENT — file absent (not enrolled)
+        var permFail = 0    // all methods failed
+        var lastErr  = ""
 
         for name in knownFiles {
-            let filePath = targetDir.appendingPathComponent(name).path
+            let fileURL  = targetDir.appendingPathComponent(name)
+            let filePath = fileURL.path
+            var handled  = false
 
-            // Probe: try O_RDONLY to detect existence vs permission
+            // ── Method 1: Darwin.open / write ─────────────────────────────────
+            // Works if sandbox escape succeeded OR if jailbreak patched AMFI.
             let rfd = filePath.withCString { Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
             if rfd >= 0 {
-                // File exists — make a backup via fd copy
-                let backupPath = backupRoot.appendingPathComponent(name).path
-                backupPath.withCString { bPath in
-                    let wfd = Darwin.open(bPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
-                    if wfd >= 0 {
-                        var buf = [UInt8](repeating: 0, count: 8192)
-                        var n: Int
-                        repeat {
-                            n = Darwin.read(rfd, &buf, buf.count)
-                            if n > 0 { _ = Darwin.write(wfd, buf, n) }
-                        } while n > 0
-                        Darwin.close(wfd)
+                // File exists — backup via raw fd copy
+                let bPath = backupRoot.appendingPathComponent(name).path
+                bPath.withCString { bp in
+                    let bfd = Darwin.open(bp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
+                    if bfd >= 0 {
+                        var buf = [UInt8](repeating: 0, count: 8192); var n: Int
+                        repeat { n = Darwin.read(rfd, &buf, buf.count); if n > 0 { _ = Darwin.write(bfd, buf, n) } } while n > 0
+                        Darwin.close(bfd)
                     }
                 }
                 Darwin.close(rfd)
-
-                // Overwrite with empty plist using O_WRONLY|O_TRUNC
                 let wfd = filePath.withCString { Darwin.open($0, O_WRONLY | O_TRUNC | O_CLOEXEC | O_NOFOLLOW) }
                 if wfd >= 0 {
                     let ok = emptyPlistBytes.withUnsafeBytes { ptr in
                         Darwin.write(wfd, ptr.baseAddress!, emptyPlistBytes.count) == emptyPlistBytes.count
                     }
                     Darwin.close(wfd)
-                    if ok {
-                        written += 1
-                        print("(mdm) ✓ overwrote \(name)")
-                    } else {
-                        print("(mdm) write() to \(name) failed: \(String(cString: strerror(errno)))")
-                        permDenied += 1
-                        lastPermError = String(cString: strerror(errno))
-                    }
+                    if ok { written += 1; handled = true; print("(mdm) ✓ overwrite \(name)") }
+                    else { lastErr = String(cString: strerror(errno)); print("(mdm) write() \(name): \(lastErr)") }
                 } else {
-                    let err = errno
-                    print("(mdm) open(\(name), WRONLY) failed: \(String(cString: strerror(err)))")
-                    permDenied += 1
-                    lastPermError = String(cString: strerror(err))
+                    lastErr = String(cString: strerror(errno)); print("(mdm) open(WRONLY) \(name): \(lastErr)")
                 }
             } else {
-                let err = errno
-                if err == ENOENT {
-                    notFound += 1
+                let e = errno
+                if e == ENOENT {
+                    noEntry += 1; handled = true
+                    print("(mdm) \(name) ENOENT (not enrolled)")
                 } else {
-                    // EPERM/EACCES = sandbox blocked even Darwin.open
-                    permDenied += 1
-                    lastPermError = String(cString: strerror(err))
-                    print("(mdm) open(\(name), RDONLY) blocked: \(lastPermError) (errno=\(err))")
+                    lastErr = String(cString: strerror(e))
+                    print("(mdm) open(RDONLY) \(name): \(lastErr) (\(e))")
                 }
+            }
+
+            if handled { continue }
+
+            // ── Method 2: ba_purge_file ───────────────────────────────────────
+            // Uses backgroundassetsd XPC + sandbox_extension_issue_file.
+            // Independent of bad_query. On AMFI-patched jailbreaks, the sandbox
+            // extension can be issued for arbitrary paths → backgroundassetsd
+            // purges (deletes) the file.
+            if ba_purge_file(url: fileURL) {
+                purged += 1; handled = true
+                print("(mdm) ✓ purged \(name)")
+            } else {
+                permFail += 1
+                print("(mdm) ba_purge failed: \(name)")
             }
         }
 
-        if written > 0 {
+        let total = written + purged
+        let escInfo = sbxHandle >= 0 ? sbxMethod : "none(\(sbxHandle))"
+
+        if total > 0 {
             Alertinator.shared.alert(
-                title: "MDM Bypassed Successfully!",
-                body: "Overwrote \(written) MDM profile file(s) with empty dicts via \(sbxMethod). " +
-                      "\(notFound) files not found (not enrolled). " +
-                      "Backups saved to Documents/SystemFileBackups/MDM. Reboot required."
+                title: "MDM Bypassed!",
+                body: "\(total) MDM file(s) processed: \(written) overwritten, \(purged) purged. " +
+                      "Escape: \(escInfo). \(noEntry) files absent. " +
+                      "Backups at Documents/SystemFileBackups/MDM. Reboot required."
             )
-        } else if permDenied > 0 {
-            Alertinator.shared.alert(
-                title: "MDM Write Blocked",
-                body: "Sandbox escape via \(sbxMethod) did not grant write access to ConfigurationProfiles. " +
-                      "\(notFound)/\(knownFiles.count) files not found (not enrolled). " +
-                      "Last error: \(lastPermError). " +
-                      "iOS \(ProcessInfo.processInfo.operatingSystemVersionString)."
-            )
-        } else {
-            // All files returned ENOENT — genuinely not enrolled
+        } else if noEntry == knownFiles.count {
             Alertinator.shared.alert(
                 title: "Not Enrolled in MDM",
-                body: "No MDM profile files were found in ConfigurationProfiles (\(notFound)/\(knownFiles.count) missing). " +
+                body: "None of the \(knownFiles.count) MDM profile files exist in ConfigurationProfiles. " +
                       "Your device is not currently enrolled in MDM."
+            )
+        } else {
+            Alertinator.shared.alert(
+                title: "MDM Bypass Failed",
+                body: "Escape: \(escInfo). ba_purge blocked for \(permFail) file(s). " +
+                      "\(noEntry) not found. Last error: \(lastErr.isEmpty ? "unknown" : lastErr). " +
+                      "iOS \(ProcessInfo.processInfo.operatingSystemVersionString).\n\n" +
+                      "Your jailbreak may need to patch AMFI for MDM file access."
             )
         }
     }
 }
+
