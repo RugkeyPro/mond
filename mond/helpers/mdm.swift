@@ -127,3 +127,58 @@ func grant_mdm_access() -> String? {
     print("(mdm) all activation strategies failed")
     return nil
 }
+
+/// Resolve the UUID-based container path for configurationprofiles.
+/// Even when copy_sandbox_token fails (-4), container_object_get_path still returns
+/// the REAL path. The UUID path avoids the "configurationprofiles" string that
+/// the iOS 26.5+ kernel blacklist checks.
+///
+/// Named path:  /private/var/containers/Shared/SystemGroup/systemgroup.com.apple.configurationprofiles/
+/// UUID path:   /private/var/containers/Shared/SystemGroup/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX/
+///
+/// The UUID path does NOT contain "configurationprofiles" → may bypass kernel filter.
+private typealias mdm_path_fn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafePointer<CChar>?
+
+func resolve_mdm_uuid_path() -> String? {
+    guard let lib = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW) else { return nil }
+    defer { dlclose(lib) }
+
+    guard
+        let create   = mdm_sym(lib, "container_query_create",             as: mdm_create_fn.self),
+        let free     = mdm_sym(lib, "container_query_free",               as: mdm_free_fn.self),
+        let set_cls  = mdm_sym(lib, "container_query_set_class",          as: mdm_u64_fn.self),
+        let set_tran = mdm_sym(lib, "container_query_set_transient",      as: mdm_bool_fn.self),
+        let set_gids = mdm_sym(lib, "container_query_set_group_identifiers", as: mdm_obj_fn.self),
+        let set_plat = mdm_sym(lib, "container_query_operation_set_platform", as: mdm_u64_fn.self),
+        let set_flag = mdm_sym(lib, "container_query_operation_set_flags", as: mdm_u64_fn.self),
+        let get_res  = mdm_sym(lib, "container_query_get_single_result",  as: mdm_res_fn.self),
+        let get_path = mdm_sym(lib, "container_object_get_path",          as: mdm_path_fn.self)
+    else { return nil }
+
+    guard let q = create() else { return nil }
+
+    set_cls(q, 13)
+    set_tran(q, false)
+    let arr = xpc_array_create(nil, 0)
+    xpc_array_set_string(arr, XPC_ARRAY_APPEND, "systemgroup.com.apple.configurationprofiles")
+    set_gids(q, arr)
+    set_plat(q, 2)
+    set_flag(q, (1 << 32) | (1 << 39))
+
+    guard let res = get_res(q) else {
+        free(q)
+        print("(mdm-uuid) get_single_result returned nil")
+        return nil
+    }
+
+    guard let c_path = get_path(res) else {
+        free(q)
+        print("(mdm-uuid) container_object_get_path returned nil")
+        return nil
+    }
+
+    let uuidPath = String(cString: c_path)
+    free(q)
+    print("(mdm-uuid) resolved container UUID path: \(uuidPath)")
+    return uuidPath
+}
