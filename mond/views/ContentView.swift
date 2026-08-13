@@ -590,26 +590,30 @@ struct ContentView: View {
         var neuteredCount = 0
         var purgedCount = 0
 
-        // Step 1: Try new CMG-style sandbox escape (container_object_sandbox_extension_activate)
-        // This works on iOS 26.5/26.6 where bad_query returns -4 for configurationprofiles
+        // Step 1: Try CMG-style sandbox escape (container_object_sandbox_extension_activate
+        //         + set_part_domain("../ConfigurationProfiles")).
+        // grant_mdm_access() now returns the ConfigurationProfiles path directly.
+        // This works on iOS 26.5/26.6 where bad_query returns -4.
         var targetDir = URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true)
         var sbxHandle: Int64 = -4
         var sbxMethod = "none"
 
-        if let activatedBase = grant_mdm_access() {
-            // The activated base path is the systemgroup container root;
-            // ConfigurationProfiles lives at Library/ConfigurationProfiles relative to it
-            // The base path returned is typically /.../systemgroup.com.apple.configurationprofiles/Library/Caches
-            // We need Library/ConfigurationProfiles — go up from Caches to Library, then into ConfigurationProfiles
-            let baseURL = URL(fileURLWithPath: activatedBase)
-            let libraryURL = baseURL.deletingLastPathComponent() // up from Caches to Library
-            let configProfilesURL = libraryURL.appendingPathComponent("ConfigurationProfiles")
-            if fm.fileExists(atPath: configProfilesURL.path) {
-                targetDir = configProfilesURL
+        if let activatedPath = grant_mdm_access() {
+            // grant_mdm_access returns the path the sandbox extension was activated for.
+            // With set_part_domain("../ConfigurationProfiles"), this is Library/ConfigurationProfiles.
+            let candidateURL = URL(fileURLWithPath: activatedPath)
+            // Use it if it looks right; otherwise keep default
+            if activatedPath.contains("ConfigurationProfiles") {
+                targetDir = candidateURL
+            } else {
+                // Path returned might be Library/Caches; navigate to sibling ConfigurationProfiles
+                let libraryURL = candidateURL.deletingLastPathComponent()
+                let configURL = libraryURL.appendingPathComponent("ConfigurationProfiles")
+                targetDir = configURL
             }
-            sbxHandle = 0  // success
+            sbxHandle = 0
             sbxMethod = "cmg-activate"
-            print("(mdm) grant_mdm_access succeeded, targetDir: \(targetDir.path)")
+            print("(mdm) sandbox access granted, targetDir: \(targetDir.path)")
         } else {
             // Step 2: Fall back to bad_query (works on older iOS, may fail on 26.5+)
             var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
@@ -621,6 +625,7 @@ struct ContentView: View {
                 print("(mdm) bad_query returned \(sbxHandle), sandbox escape failed")
             }
         }
+
 
         defer {
             if sbxMethod == "bad_query" && sbxHandle >= 0 {
