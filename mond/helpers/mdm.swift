@@ -157,13 +157,27 @@ func resolve_mdm_uuid_path() -> String? {
 
     guard let q = create() else { return nil }
 
+    // Class 13 = system group container
     set_cls(q, 13)
     set_tran(q, false)
-    let arr = xpc_array_create(nil, 0)
-    xpc_array_set_string(arr, XPC_ARRAY_APPEND, "systemgroup.com.apple.configurationprofiles")
+
+    // Build XPC string array safely without XPC_ARRAY_APPEND macro
+    // (XPC_ARRAY_APPEND = SIZE_MAX which can cause issues in Swift)
+    var cStr = "systemgroup.com.apple.configurationprofiles"
+    let arr = cStr.withCString { ptr -> (any OS_xpc_object)? in
+        let a = xpc_array_create(nil, 0)
+        xpc_array_set_string(a, 0, ptr)
+        return a
+    }
+    guard let arr = arr else {
+        free(q)
+        return nil
+    }
     set_gids(q, arr)
     set_plat(q, 2)
-    set_flag(q, (1 << 32) | (1 << 39))
+    // Use only well-tested flag bit (1<<32 = platform flag)
+    let flag: UInt64 = (1 << 32)
+    set_flag(q, flag)
 
     guard let res = get_res(q) else {
         free(q)
