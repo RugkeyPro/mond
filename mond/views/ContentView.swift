@@ -597,38 +597,59 @@ struct ContentView: View {
 """
         let emptyPlistBytes = Array(emptyPlist.utf8)
 
-        // ── Sandbox Escape Attempts ────────────────────────────────────────────
-        // NOTE: Even when BOTH fail (code -4 on iOS 26.5/26.6) we still proceed.
-        // ba_purge_file uses a completely independent path (backgroundassetsd XPC)
-        // and may succeed on AMFI-patched jailbreaks regardless of escape result.
+        // ── Sandbox Escape: try ALL methods, never give up early ──────────────
         var sbxHandle: Int64 = -99
         var sbxMethod = "none"
 
-        if let _ = grant_mdm_access() {
-            sbxHandle = 0; sbxMethod = "cmg-activate"
-        } else {
+        // Method A: sandbox_extension_issue_file (direct syscall, no containermanagerd)
+        // On AMFI-patched jailbreaks this issues a token for ANY path
+        if let token = sandbox_extension_issue_file(path: TweakPaths.mdm_profiles_dir) {
+            if let h = sandbox_extension_consume(token), h >= 0 {
+                sbxHandle = h; sbxMethod = "sbx-issue-dir"
+                print("(mdm) sandbox_extension_issue_file+consume succeeded for dir: handle=\(h)")
+            }
+        }
+
+        // Method B: cmg-activate (container_object_sandbox_extension_activate)
+        if sbxHandle < 0 {
+            if let _ = grant_mdm_access() {
+                sbxHandle = 0; sbxMethod = "cmg-activate"
+            }
+        }
+
+        // Method C: bad_query with mobilegestaltcache identifier redirect
+        if sbxHandle < 0 {
             var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
             var mg_c = "systemgroup.com.apple.mobilegestaltcache".utf8CString.map { Int8($0) }
             sbxHandle = bad_query(&path_c, false, &mg_c, true)
-            if sbxHandle >= 0 {
-                sbxMethod = "bad_query-mg"
-            } else {
-                sbxHandle = bad_query(&path_c, false, nil, false)
-                if sbxHandle >= 0 { sbxMethod = "bad_query" }
-                else { print("(mdm) all sandbox escape methods returned \(sbxHandle)") }
+            if sbxHandle >= 0 { sbxMethod = "bad_query-mg" }
+        }
+
+        // Method D: bad_query with auto-detected identifier (original path)
+        if sbxHandle < 0 {
+            var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
+            sbxHandle = bad_query(&path_c, false, nil, false)
+            if sbxHandle >= 0 { sbxMethod = "bad_query" }
+        }
+
+        if sbxHandle < 0 {
+            print("(mdm) all directory-level escapes failed (\(sbxHandle)), will try per-file methods")
+        }
+
+        defer {
+            if sbxHandle >= 0 && (sbxMethod == "bad_query" || sbxMethod == "bad_query-mg") {
+                bad_query_release(sbxHandle)
             }
         }
-        defer { if sbxMethod == "bad_query" && sbxHandle >= 0 { bad_query_release(sbxHandle) } }
 
         let fm = FileManager.default
         let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
         try? fm.createDirectory(at: backupRoot, withIntermediateDirectories: true)
 
-        var written = 0     // overwritten via Darwin.write
-        var purged  = 0     // deleted via ba_purge_file
-        var noEntry = 0     // ENOENT — file absent (not enrolled)
-        var permFail = 0    // all methods failed
+        var written  = 0
+        var noEntry  = 0
+        var permFail = 0
         var lastErr  = ""
 
         for name in knownFiles {
@@ -636,8 +657,17 @@ struct ContentView: View {
             let filePath = fileURL.path
             var handled  = false
 
-            // ── Method 1: Darwin.open / write ─────────────────────────────────
-            // Works if sandbox escape succeeded OR if jailbreak patched AMFI.
+            // ── Per-file sandbox_extension_issue_file ──────────────────────────
+            // If directory-level escape failed, try issuing a token per file
+            if sbxHandle < 0 {
+                if let token = sandbox_extension_issue_file(path: filePath) {
+                    if let h = sandbox_extension_consume(token), h >= 0 {
+                        print("(mdm) per-file sbx-issue succeeded for \(name): handle=\(h)")
+                    }
+                }
+            }
+
+            // ── Try Darwin.open / write ────────────────────────────────────────
             let rfd = filePath.withCString { Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
             if rfd >= 0 {
                 // File exists — backup via raw fd copy
@@ -674,19 +704,17 @@ struct ContentView: View {
             }
 
             if handled { continue }
-
-            // If direct access failed, record permission failure
             permFail += 1
-            print("(mdm) Access denied for \(name): \(lastErr)")
+            print("(mdm) all methods denied for \(name): \(lastErr)")
         }
 
-        let total = written + purged
+        let total = written
         let escInfo = sbxHandle >= 0 ? sbxMethod : "none(\(sbxHandle))"
 
         if total > 0 {
             Alertinator.shared.alert(
                 title: "MDM Bypassed!",
-                body: "\(total) MDM file(s) processed: \(written) overwritten, \(purged) purged. " +
+                body: "\(total) MDM file(s) overwritten with empty dicts. " +
                       "Escape: \(escInfo). \(noEntry) files absent. " +
                       "Backups at Documents/SystemFileBackups/MDM. Reboot required."
             )
@@ -699,10 +727,11 @@ struct ContentView: View {
         } else {
             Alertinator.shared.alert(
                 title: "MDM Bypass Failed",
-                body: "Escape: \(escInfo). ba_purge blocked for \(permFail) file(s). " +
+                body: "Escape: \(escInfo). Access denied for \(permFail) file(s). " +
                       "\(noEntry) not found. Last error: \(lastErr.isEmpty ? "unknown" : lastErr). " +
                       "iOS \(ProcessInfo.processInfo.operatingSystemVersionString).\n\n" +
-                      "Your jailbreak may need to patch AMFI for MDM file access."
+                      "Ensure your signing tool applies entitlements.plist " +
+                      "with com.apple.private.security.no-sandbox enabled."
             )
         }
     }

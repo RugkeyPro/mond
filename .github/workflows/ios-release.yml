@@ -82,6 +82,9 @@ jobs:
           printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>com.apple.private.security.no-sandbox</key>\n\t<true/>\n\t<key>platform-application</key>\n\t<true/>\n\t<key>com.apple.private.skip-library-validation</key>\n\t<true/>\n</dict>\n</plist>\n' > entitlements.plist
           echo ":: Ad-hoc signing with no-sandbox entitlements"
           codesign --force --deep --sign - --entitlements entitlements.plist "$APP_PATH"
+          # Also embed entitlements.plist IN the .app bundle so signing tools can find it
+          cp entitlements.plist "$APP_PATH/entitlements.plist"
+          echo ":: entitlements.plist embedded in app bundle"
 
           rm -rf Payload mond.ipa
           mkdir -p Payload
