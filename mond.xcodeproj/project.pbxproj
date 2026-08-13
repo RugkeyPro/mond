@@ -41,6 +41,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		BAF44B41300858B300739BFC /* BAExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BAExtension;
+			sourceTree = "<group>";
+		};
 		CCF44B41300858B300739BFC /* mond */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = mond;
@@ -71,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				CCF44B41300858B300739BFC /* mond */,
+				BAF44B41300858B300739BFC /* BAExtension */,
 				CCF44B40300858B300739BFC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -100,7 +106,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				CCF44B41300858B300739BFC /* mond */,
+				BAF44B41300858B300739BFC /* BAExtension */,
 			);
 			name = BAExtension;
 			productName = BAExtension;
@@ -225,7 +231,7 @@
 				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = DN4S6CXFWY;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = mond/BAExtension/Info.plist;
+				INFOPLIST_FILE = BAExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -253,7 +259,7 @@
 				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = DN4S6CXFWY;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = mond/BAExtension/Info.plist;
+				INFOPLIST_FILE = BAExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
