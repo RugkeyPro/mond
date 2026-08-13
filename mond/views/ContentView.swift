@@ -628,17 +628,36 @@ struct ContentView: View {
             }
         }
 
-        let targetFiles = [
-            targetDir.appendingPathComponent("CloudConfigurationDetails.plist"),
-            targetDir.appendingPathComponent("ClientTruth.plist"),
-            targetDir.appendingPathComponent("CloudConfigurationSetAsideDetails.plist"),
-            targetDir.appendingPathComponent("MDM.plist"),
-            targetDir.appendingPathComponent("MCProfileEvents.plist"),
-            targetDir.appendingPathComponent("MDMEvents.plist"),
-            targetDir.appendingPathComponent("ProfileTruth.plist")
-        ]
-
-        let existingFiles = targetFiles.filter { fm.fileExists(atPath: $0.path) }
+        // Scan entire ConfigurationProfiles directory for any files
+        // (iOS 26 may use different file names than the hardcoded list)
+        var existingFiles: [URL] = []
+        let dirExists = fm.fileExists(atPath: targetDir.path)
+        if dirExists {
+            let knownFiles = [
+                "CloudConfigurationDetails.plist",
+                "ClientTruth.plist",
+                "CloudConfigurationSetAsideDetails.plist",
+                "MDM.plist",
+                "MCProfileEvents.plist",
+                "MDMEvents.plist",
+                "ProfileTruth.plist"
+            ]
+            // First add known files that exist
+            for name in knownFiles {
+                let url = targetDir.appendingPathComponent(name)
+                if fm.fileExists(atPath: url.path) { existingFiles.append(url) }
+            }
+            // Also scan for any .plist or .mobileconfig files not in the known list
+            if let contents = try? fm.contentsOfDirectory(at: targetDir, includingPropertiesForKeys: nil) {
+                for url in contents {
+                    let ext = url.pathExtension.lowercased()
+                    if (ext == "plist" || ext == "mobileconfig") && !existingFiles.contains(url) {
+                        existingFiles.append(url)
+                        print("(mdm) found additional MDM file: \(url.lastPathComponent)")
+                    }
+                }
+            }
+        }
 
         // If sandbox escape failed entirely, report it clearly
         if sbxHandle < 0 && existingFiles.isEmpty {
@@ -652,9 +671,12 @@ struct ContentView: View {
         }
 
         if existingFiles.isEmpty {
+            let reason = dirExists
+                ? "The directory exists but contains no recognized MDM profile files. Your device may not be enrolled in MDM."
+                : "The ConfigurationProfiles directory does not exist. Your device is not enrolled in MDM."
             Alertinator.shared.alert(
                 title: "No MDM Profiles Found",
-                body: "No active MDM profile files were found at \(targetDir.path). Your device may not be enrolled in MDM."
+                body: "\(reason)\n\nPath: \(targetDir.path)"
             )
             return
         }

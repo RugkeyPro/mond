@@ -46,6 +46,7 @@ func grant_mdm_access() -> String? {
         let set_gids = mdm_load_sym(lib, "container_query_set_group_identifiers",        as: mdm_set_obj_fn.self),
         let set_plat = mdm_load_sym(lib, "container_query_operation_set_platform",       as: mdm_set_ui64_fn.self),
         let set_flag = mdm_load_sym(lib, "container_query_operation_set_flags",          as: mdm_set_ui64_fn.self),
+        let set_part = mdm_load_sym(lib, "container_query_operation_set_part",           as: mdm_set_ui64_fn.self),
         let get_res  = mdm_load_sym(lib, "container_query_get_single_result",            as: mdm_get_res_fn.self),
         let get_path = mdm_load_sym(lib, "container_object_get_path",                   as: mdm_get_path_fn.self)
     else {
@@ -68,6 +69,9 @@ func grant_mdm_access() -> String? {
     set_plat(q, 2)
     // Same flags as cmg: bit 32 | bit 39
     set_flag(q, (1 << 32) | (1 << 39))
+    // Part 3 = Library/Caches — causes get_path to return <container>/Library/Caches
+    // so we can navigate: deletingLastPathComponent() → Library → + ConfigurationProfiles
+    set_part(q, 3)
 
     guard let res = get_res(q) else {
         free(q)
