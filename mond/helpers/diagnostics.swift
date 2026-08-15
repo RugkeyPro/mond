@@ -98,15 +98,18 @@ func diag_mcm_symbols() {
     // Also check sandbox symbols
     print("")
     print("── 3. 沙盒扩展符号 (libsystem_sandbox.dylib) ──")
+    let sbxLib = dlopen("/usr/lib/system/libsystem_sandbox.dylib", RTLD_NOW)
+    let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)
     let sbxSymbols = [
         "sandbox_extension_consume",
         "sandbox_extension_release",
         "sandbox_extension_issue_file",
     ]
     for sym in sbxSymbols {
-        let ptr = dlsym(RTLD_DEFAULT, sym)
+        let ptr = sbxLib != nil ? dlsym(sbxLib, sym) : dlsym(rtldDefault, sym)
         print("  \(ptr != nil ? "✅" : "❌") \(sym): \(ptr.map { String(format: "%p", Int(bitPattern: $0)) } ?? "NULL")")
     }
+    if let sbxLib { dlclose(sbxLib) }
     print("")
 }
 
