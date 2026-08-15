@@ -146,6 +146,20 @@ struct SettingsView: View {
                 }
                 
                 Section {
+                    Button {
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            run_full_diagnostics()
+                        }
+                    } label: {
+                        Label("运行完整诊断 (真机逃逸测试)", systemImage: "stethoscope")
+                    }
+                } header: {
+                    Label("诊断与调试 (iOS 26/27 逃逸检测)", systemImage: "ladybug")
+                } footer: {
+                    Text("全面探测 MCM 路径穿越、MCM 符号、沙盒扩展签发、MDM 绕过、UUID 物理路径以及文件真实写入能力。结果将实时输出至日志控制台。长按日志即可复制全部诊断报告。")
+                }
+
+                Section {
                     CreditsRow(name: "roooot", role: "主要开发者", profile: URL(string: "https://github.com/rooootdev")!)
                     CreditsRow(name: "forcequit", role: "bad_query 漏洞发现与实现", profile: URL(string: "https://github.com/forcequitOS")!)
                     CreditsRow(name: "johnny", role: "MCM 漏洞类研究与贡献", profile: URL(string: "https://github.com/0xjohnnydev")!)
