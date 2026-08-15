@@ -67,45 +67,45 @@ private enum FileBrowserError: LocalizedError {
             let reason: String
             switch code {
             case -1:
-                reason = "Required container-manager symbols are unavailable."
+                reason = "无法加载 container-manager 核心符号。"
             case -2:
-                reason = "The container query could not be created."
+                reason = "无法创建容器查询请求。"
             case -3:
-                reason = "containermanager returned no object. This exact path or iOS build is not supported."
+                reason = "containermanager 未返回有效对象。此路径或当前 iOS 系统版本可能不支持。"
             case -4:
-                reason = "iOS refused to issue a sandbox extension."
+                reason = "iOS 内核拒绝签发沙盒扩展 Token。"
             case -5:
-                reason = "The traversal path could not be constructed."
+                reason = "无法构造路径穿越（Traversal）参数。"
             case -254:
-                reason = "The path does not exist on this device."
+                reason = "目标路径在此设备上不存在。"
             case -255:
-                reason = "The requested path is not absolute."
+                reason = "请求的路径不是绝对路径。"
             default:
-                reason = "The access request failed."
+                reason = "沙盒扩展访问请求失败。"
             }
-            return "Could not open \(path): bad_query returned \(code). \(reason) Device: \(ProcessInfo.processInfo.operatingSystemVersionString)."
+            return "无法打开 \(path)：bad_query 返回错误码 \(code)。\(reason)（系统版本：\(ProcessInfo.processInfo.operatingSystemVersionString)）"
         case let .grantDidNotOpenPath(path, reason):
-            return "bad_query returned a handle, but \(path) is still unreadable: \(reason)"
+            return "bad_query 已返回句柄，但路径 \(path) 仍不可读：\(reason)"
         case let .writeProbeFailed(path, reason):
-            return "Read access works, but iOS did not grant writes to \(path): \(reason)"
+            return "已获得读取权限，但系统未授予 \(path) 写入权限：\(reason)"
         case .invalidName:
-            return "Names cannot be empty, '.', '..', or contain a slash."
+            return "名称不能为空、不能为 '.' 或 '..'，且不能包含斜杠 '/'。"
         case .readOnly:
-            return "Writes are not enabled for this location."
+            return "当前位置未开启写入权限。"
         case .outsideRoot:
-            return "The requested path is outside the selected root."
+            return "请求的路径超出了选定根目录的范围。"
         case .directoryMutationBlocked:
-            return "System directories cannot be renamed or deleted by this browser."
+            return "文件浏览器禁止对系统目录进行直接重命名或删除。"
         case let .protectedSystemItem(path):
-            return "\(path) cannot be renamed. It may be edited, or deleted through the separate backed-up critical-deletion flow."
+            return "\(path) 是系统核心受保护文件，禁止重命名。可在备份后进行编辑或通过专门流程删除。"
         case let .backupFailed(reason):
-            return "The safety backup failed, so the system change was cancelled: \(reason)"
+            return "创建安全备份失败，为保护系统已取消本次操作：\(reason)"
         case let .deletionVerificationFailed(path):
-            return "Deletion was requested, but \(path) still exists after the directory was re-read. iOS may have recreated it immediately. The safety backup was kept."
+            return "已执行删除，但在重新枚举目录后 \(path) 仍然存在。系统守护进程可能已自动重新生成。安全备份已保留。"
         case let .editorUnsupported(name):
-            return "\(name) is not a supported editable text, JSON, XML, or property-list file."
+            return "\(name) 不是支持编辑的文本、JSON、XML 或 Property List (plist) 文件。"
         case let .fileTooLarge(size):
-            return "This file is \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)); the built-in editor is limited to 2 MB."
+            return "该文件大小为 \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))；内置编辑器最大支持 2 MB。"
         }
     }
 }
@@ -123,50 +123,59 @@ final class FileBrowserModel: ObservableObject {
     private var sandboxHandles: [Int64] = []
     private var grantedTargetPaths: Set<String> = []
 
-    // bad_query cannot normally grant /private/var itself. It must be called
-    // once for an exact target root, after which that grant is reused for all
-    // descendants. The first target exactly matches TweakPaths.gestalt_dir.
     private let supportedSystemTargets: [SystemTarget] = [
         SystemTarget(
-            title: "MobileGestalt Cache",
+            title: "MobileGestalt 缓存",
             url: URL(fileURLWithPath: TweakPaths.gestalt_dir, isDirectory: true).standardizedFileURL,
             queryPath: TweakPaths.gestalt_dir,
             allowsManagedWrites: true
         ),
         SystemTarget(
-            title: "MDM Configuration Profiles",
+            title: "MDM 描述文件存储",
             url: URL(fileURLWithPath: TweakPaths.mdm_profiles, isDirectory: true),
             queryPath: TweakPaths.mdm_profiles_dir,
             allowsManagedWrites: true
         ),
         SystemTarget(
-            title: "System Data Containers",
+            title: "系统数据容器 (System Data)",
             url: URL(fileURLWithPath: "/private/var/containers/Data/System", isDirectory: true),
             queryPath: "/private/var/containers/Data/System/",
             allowsManagedWrites: true
         ),
         SystemTarget(
-            title: "Application Containers",
+            title: "应用数据容器 (Application Data)",
             url: URL(fileURLWithPath: "/private/var/mobile/Containers/Data/Application", isDirectory: true),
             queryPath: "/private/var/mobile/Containers/Data/Application/",
             allowsManagedWrites: true
         ),
         SystemTarget(
-            title: "Internal Daemon Containers",
+            title: "内部守护进程容器 (Internal Daemon)",
             url: URL(fileURLWithPath: "/private/var/mobile/Containers/Data/InternalDaemon", isDirectory: true),
             queryPath: "/private/var/mobile/Containers/Data/InternalDaemon/",
             allowsManagedWrites: true
         ),
         SystemTarget(
-            title: "Plugin Containers",
+            title: "插件扩展容器 (PluginKit Plugin)",
             url: URL(fileURLWithPath: "/private/var/mobile/Containers/Data/PluginKitPlugin", isDirectory: true),
             queryPath: "/private/var/mobile/Containers/Data/PluginKitPlugin/",
             allowsManagedWrites: true
         ),
         SystemTarget(
-            title: "App Groups",
+            title: "共享应用组 (App Groups)",
             url: URL(fileURLWithPath: "/private/var/mobile/Containers/Shared/AppGroup", isDirectory: true),
             queryPath: "/private/var/mobile/Containers/Shared/AppGroup/",
+            allowsManagedWrites: true
+        ),
+        SystemTarget(
+            title: "PosterBoard 锁屏海报存储",
+            url: URL(fileURLWithPath: TweakPaths.posterboard, isDirectory: true),
+            queryPath: TweakPaths.posterboard_dir,
+            allowsManagedWrites: true
+        ),
+        SystemTarget(
+            title: "用户偏好设置 (Preferences)",
+            url: URL(fileURLWithPath: TweakPaths.preferences, isDirectory: true),
+            queryPath: TweakPaths.preferences_dir,
             allowsManagedWrites: true
         ),
     ]
@@ -226,7 +235,7 @@ final class FileBrowserModel: ObservableObject {
             nodes = supportedSystemTargets.map {
                 FileNode(url: $0.url, isDirectory: true, size: nil, modified: nil)
             }
-            accessNote = "The /private/var parent is not requested. Select an exact target; mond then reuses one verified grant for that target and all of its children."
+            accessNote = "未全局请求 /private/var 根目录。请选择具体的精确目标；mond 将为该目标及其子目录复用经校验的沙盒授权。"
             isLoading = false
             return
         }
@@ -289,12 +298,12 @@ final class FileBrowserModel: ObservableObject {
                 try grantSystemAccess(to: target.url, requireFreshExtension: true)
             } catch {
                 guard canEnumerate(target.url) else { throw error }
-                accessNote = "A fresh write grant failed (\(error.localizedDescription)); testing the process's existing readable extension with real file operations."
+                accessNote = "全新写入授权失败（\(error.localizedDescription)）；正在通过真实文件操作测试现有可读扩展。"
             }
             try verifyWriteOperations(in: currentURL)
 
             unlockedWriteTarget = target.id
-            operationMessage = "Create, rename, atomic replace and delete were verified in \(currentURL.path). Existing system files are backed up before changes."
+            operationMessage = "已在 \(currentURL.path) 成功验证创建、重命名、原子替换和删除探针。现有系统文件在修改前将自动备份。"
         } catch {
             unlockedWriteTarget = nil
             errorMessage = error.localizedDescription
@@ -303,7 +312,7 @@ final class FileBrowserModel: ObservableObject {
 
     func lockSystemEditing() {
         unlockedWriteTarget = nil
-        operationMessage = "System writes locked for this session."
+        operationMessage = "已锁定本次会话的系统写入权限。"
     }
 
     func canRename(_ node: FileNode) -> Bool {
@@ -368,23 +377,23 @@ final class FileBrowserModel: ObservableObject {
 
         if root.mode == .systemManaged {
             let backup = try backupSystemFile(node.url)
-            operationMessage = "Safety backup saved to \(backup.path)."
+            operationMessage = "安全备份已保存至 \(backup.path)。"
         }
 
         try atomicallyReplaceFile(at: node.url, with: data)
-        operationMessage = "Saved \(node.url.lastPathComponent). \(operationMessage ?? "")"
+        operationMessage = "已保存 \(node.url.lastPathComponent)。\(operationMessage ?? "")"
         reload()
     }
 
     func createFolder(named name: String) {
-        performEditableOperation(successMessage: "Folder created.") {
+        performEditableOperation(successMessage: "文件夹已创建。") {
             let destination = try destinationURL(for: name)
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
         }
     }
 
     func createEmptyFile(named name: String) {
-        performEditableOperation(successMessage: "Empty file created.") {
+        performEditableOperation(successMessage: "空白文件已创建。") {
             let destination = try destinationURL(for: name)
             guard FileManager.default.createFile(atPath: destination.path, contents: Data()) else {
                 throw CocoaError(.fileWriteUnknown)
@@ -393,12 +402,12 @@ final class FileBrowserModel: ObservableObject {
     }
 
     func rename(_ node: FileNode, to name: String) {
-        performEditableOperation(successMessage: "Item renamed.") {
+        performEditableOperation(successMessage: "重命名成功。") {
             guard contains(node.url) else { throw FileBrowserError.outsideRoot }
             if root.mode == .systemManaged {
                 try validateSystemFileRename(node)
                 let backup = try backupSystemFile(node.url)
-                operationMessage = "Safety backup saved to \(backup.path)."
+                operationMessage = "安全备份已保存至 \(backup.path)。"
             }
 
             let cleanName = try validatedName(name)
@@ -431,9 +440,9 @@ final class FileBrowserModel: ObservableObject {
 
             errorMessage = nil
             if let backup {
-                operationMessage = "Deleted and verified \(node.url.lastPathComponent). Safety backup: \(backup.path)"
+                operationMessage = "已删除并验证 \(node.url.lastPathComponent)。安全备份: \(backup.path)"
             } else {
-                operationMessage = "Deleted and verified \(node.url.lastPathComponent)."
+                operationMessage = "已删除并验证 \(node.url.lastPathComponent)。"
             }
             reload()
         } catch {
@@ -462,11 +471,11 @@ final class FileBrowserModel: ObservableObject {
 
             if root.mode == .systemManaged {
                 let backup = try backupSystemFile(node.url)
-                operationMessage = "Safety backup saved to \(backup.path)."
+                operationMessage = "安全备份已保存至 \(backup.path)。"
             }
 
             try atomicallyReplaceFile(at: node.url, with: data)
-            operationMessage = "Overwrote \(node.url.lastPathComponent) with empty payload (prevents daemon auto-recovery)."
+            operationMessage = "已将 \(node.url.lastPathComponent) 覆写为空 Payload（防止守护进程自愈恢复）。"
             reload()
         } catch {
             errorMessage = error.localizedDescription
@@ -632,18 +641,16 @@ final class FileBrowserModel: ObservableObject {
         }
         if !requireFreshExtension, grantedTargetPaths.contains(target.id) { return }
 
-        // ContentView normally runs grant_mg_write() before the browser opens.
-        // Reuse that process-wide extension when the target is already readable.
         if !requireFreshExtension, canEnumerate(target.url) {
             grantedTargetPaths.insert(target.id)
-            accessNote = "Verified real access to \(target.id) using the process's existing sandbox extension."
+            accessNote = "已使用当前进程已有的沙盒扩展成功验证对 \(target.id) 的访问。"
             return
         }
 
         if target.queryPath == TweakPaths.mdm_profiles_dir || target.queryPath == TweakPaths.mdm_profiles {
             if let _ = grant_mdm_access(), canEnumerate(target.url) {
                 grantedTargetPaths.insert(target.id)
-                accessNote = "grant_mdm_access granted and verified real access to \(target.id)."
+                accessNote = "通过 grant_mdm_access 成功授权并验证了对 \(target.id) 的真实访问。"
                 return
             }
         }
@@ -666,7 +673,7 @@ final class FileBrowserModel: ObservableObject {
 
         sandboxHandles.append(handle)
         grantedTargetPaths.insert(target.id)
-        accessNote = "bad_query granted and verified real access to \(target.id)."
+        accessNote = "bad_query 已成功授权并验证了对 \(target.id) 的真实访问。"
     }
 
     private func canEnumerate(_ url: URL) -> Bool {
@@ -727,29 +734,29 @@ struct FileBrowserHomeView: View {
 
         return [
             BrowserRoot(
-                title: "Documents",
-                subtitle: "Editable and visible through Files/iTunes sharing",
+                title: "文稿 (Documents)",
+                subtitle: "应用沙盒主目录，可通过‘文件’App / iTunes 共享查看",
                 icon: "doc.on.doc",
                 url: documents,
                 mode: .sandbox
             ),
             BrowserRoot(
-                title: "Library",
-                subtitle: "Editable app support and preference files",
+                title: "资源库 (Library)",
+                subtitle: "应用支持文件与用户偏好设置目录",
                 icon: "books.vertical",
                 url: library,
                 mode: .sandbox
             ),
             BrowserRoot(
-                title: "Temporary",
-                subtitle: "Editable cache cleared by iOS when needed",
+                title: "临时目录 (Temporary)",
+                subtitle: "可编辑的缓存目录，系统在需要时会自动清理",
                 icon: "clock.arrow.circlepath",
                 url: temporary,
                 mode: .sandbox
             ),
             BrowserRoot(
-                title: "/private/var",
-                subtitle: "Real precise-path access; writes require verification and opt-in",
+                title: "/private/var 系统目录",
+                subtitle: "真实精确路径访问；写操作需经探针验证与二次授权",
                 icon: "internaldrive",
                 url: URL(fileURLWithPath: "/private/var", isDirectory: true),
                 mode: .systemManaged
@@ -778,10 +785,10 @@ struct FileBrowserHomeView: View {
                     }
                 }
             } footer: {
-                Text("/private/var is not globally granted. Select a precise target. Writes unlock only after reversible file operations succeed; system files are backed up before editing, renaming or deletion.")
+                Text("出于安全保护，/private/var 不开放全局根目录权限。请选择具体的精确目标路径。写入权限仅在探针可逆操作验证成功后开放；系统文件在修改、重命名或删除前会自动备份。")
             }
         }
-        .navigationTitle("Files")
+        .navigationTitle("文件浏览")
     }
 }
 
@@ -796,8 +803,8 @@ struct FileBrowserView: View {
     @State private var showUnlockConfirmation = false
 
     private enum CreationKind: String, Identifiable {
-        case folder = "New Folder"
-        case file = "New Empty File"
+        case folder = "新建文件夹"
+        case file = "新建空白文件"
 
         var id: String { rawValue }
     }
@@ -818,7 +825,7 @@ struct FileBrowserView: View {
             }
 
             if let errorMessage = model.errorMessage {
-                Section("Access status") {
+                Section("访问状态") {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .textSelection(.enabled)
@@ -826,7 +833,7 @@ struct FileBrowserView: View {
             }
 
             if let accessNote = model.accessNote {
-                Section("Access verification") {
+                Section("权限验证") {
                     Label(accessNote, systemImage: "checkmark.shield")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -834,7 +841,7 @@ struct FileBrowserView: View {
             }
 
             if let operationMessage = model.operationMessage {
-                Section("Last operation") {
+                Section("最近操作") {
                     Label(operationMessage, systemImage: "checkmark.circle")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -849,7 +856,7 @@ struct FileBrowserView: View {
                         Spacer()
                     }
                 } else if model.nodes.isEmpty && model.errorMessage == nil {
-                    ContentUnavailableView("Empty Folder", systemImage: "folder")
+                    ContentUnavailableView("空文件夹", systemImage: "folder")
                 } else {
                     ForEach(model.nodes) { node in
                         if node.isDirectory {
@@ -896,18 +903,18 @@ struct FileBrowserView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if model.canGoUp {
-                    Button("Up", systemImage: "arrow.up") { model.goUp() }
+                    Button("上一级", systemImage: "arrow.up") { model.goUp() }
                 }
 
-                Button("Reload", systemImage: "arrow.clockwise") { model.reload() }
+                Button("刷新", systemImage: "arrow.clockwise") { model.reload() }
 
                 if model.root.mode == .systemManaged && !model.isSystemIndex {
                     if model.canEdit {
-                        Button("Lock writes", systemImage: "lock.open.fill") {
+                        Button("锁定写入", systemImage: "lock.open.fill") {
                             model.lockSystemEditing()
                         }
                     } else if model.canUnlockSystemEditing {
-                        Button("Verify and enable writes", systemImage: "lock.fill") {
+                        Button("验证并解锁写入", systemImage: "lock.fill") {
                             showUnlockConfirmation = true
                         }
                     }
@@ -915,11 +922,11 @@ struct FileBrowserView: View {
 
                 if model.canEdit {
                     Menu {
-                        Button("New Folder", systemImage: "folder.badge.plus") {
-                            pendingName = "New Folder"
+                        Button("新建文件夹", systemImage: "folder.badge.plus") {
+                            pendingName = "新建文件夹"
                             creationKind = .folder
                         }
-                        Button("New Empty File", systemImage: "doc.badge.plus") {
+                        Button("新建空白文件", systemImage: "doc.badge.plus") {
                             pendingName = "untitled.txt"
                             creationKind = .file
                         }
@@ -929,19 +936,19 @@ struct FileBrowserView: View {
                 }
             }
         }
-        .alert("Enable system writes?", isPresented: $showUnlockConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Verify and Enable") { model.unlockSystemEditing() }
+        .alert("开启系统文件写入？", isPresented: $showUnlockConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("验证并开启") { model.unlockSystemEditing() }
         } message: {
-            Text("mond will create temporary probe files and verify create, rename, atomic replace and delete operations without changing existing files. System files are backed up before editing, renaming or deletion. System directories cannot be renamed or deleted. MobileGestalt.plist deletion requires a separate typed confirmation.")
+            Text("mond 将在目标目录执行临时的探针文件创建、重命名、原子替换和删除测试，不会修改现有文件。修改系统文件前会自动创建备份。系统目录无法被重命名或删除。删除 MobileGestalt.plist 需单独输入确认。")
         }
-        .alert(creationKind?.rawValue ?? "Create", isPresented: Binding(
+        .alert(creationKind?.rawValue ?? "创建", isPresented: Binding(
             get: { creationKind != nil },
             set: { if !$0 { creationKind = nil } }
         )) {
-            TextField("Name", text: $pendingName)
-            Button("Cancel", role: .cancel) { creationKind = nil }
-            Button("Create") {
+            TextField("名称", text: $pendingName)
+            Button("取消", role: .cancel) { creationKind = nil }
+            Button("创建") {
                 if creationKind == .folder {
                     model.createFolder(named: pendingName)
                 } else {
@@ -950,36 +957,36 @@ struct FileBrowserView: View {
                 creationKind = nil
             }
         }
-        .alert("Rename", isPresented: Binding(
+        .alert("重命名", isPresented: Binding(
             get: { renameNode != nil },
             set: { if !$0 { renameNode = nil } }
         )) {
-            TextField("Name", text: $pendingName)
-            Button("Cancel", role: .cancel) { renameNode = nil }
-            Button("Rename") {
+            TextField("名称", text: $pendingName)
+            Button("取消", role: .cancel) { renameNode = nil }
+            Button("重命名") {
                 if let node = renameNode { model.rename(node, to: pendingName) }
                 renameNode = nil
             }
         }
         .confirmationDialog(
-            "Delete \(deleteNode?.url.lastPathComponent ?? "item")?",
+            "确定删除 \(deleteNode?.url.lastPathComponent ?? "条目")？",
             isPresented: Binding(
                 get: { deleteNode != nil },
                 set: { if !$0 { deleteNode = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            Button("删除", role: .destructive) {
                 if let node = deleteNode { model.delete(node) }
                 deleteNode = nil
             }
-            Button("Cancel", role: .cancel) { deleteNode = nil }
+            Button("取消", role: .cancel) { deleteNode = nil }
         } message: {
             Text(model.root.mode == .systemManaged
-                 ? "The regular file will be copied to Documents/SystemFileBackups before deletion."
-                 : "This cannot be undone.")
+                 ? "普通文件在删除前将自动备份至 Documents/SystemFileBackups。"
+                 : "此操作无法撤销。")
         }
-        .alert("Delete critical system file?", isPresented: Binding(
+        .alert("删除系统核心文件？", isPresented: Binding(
             get: { criticalDeleteNode != nil },
             set: {
                 if !$0 {
@@ -988,21 +995,21 @@ struct FileBrowserView: View {
                 }
             }
         )) {
-            TextField("Type DELETE", text: $criticalDeleteConfirmation)
+            TextField("请输入 DELETE", text: $criticalDeleteConfirmation)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
-            Button("Cancel", role: .cancel) {
+            Button("取消", role: .cancel) {
                 criticalDeleteNode = nil
                 criticalDeleteConfirmation = ""
             }
-            Button("Back Up and Delete", role: .destructive) {
+            Button("备份并删除", role: .destructive) {
                 if let node = criticalDeleteNode { model.delete(node) }
                 criticalDeleteNode = nil
                 criticalDeleteConfirmation = ""
             }
             .disabled(criticalDeleteConfirmation != "DELETE")
         } message: {
-            Text("Deleting com.apple.MobileGestalt.plist can make iOS unstable or unbootable. mond will first copy it to Documents/SystemFileBackups, then delete it and re-read the directory to verify the result. Type DELETE to continue.")
+            Text("删除 com.apple.MobileGestalt.plist 可能会导致 iOS 系统不稳定甚至无法开机（Bootloop）。mond 会先将其备份至 Documents/SystemFileBackups，然后执行删除并重新枚举目录验证结果。请输入 DELETE 以确认继续。")
         }
     }
 
@@ -1018,32 +1025,32 @@ struct FileBrowserView: View {
 
     private var statusText: String {
         if model.root.mode == .sandbox {
-            return "Editable app container. Long-press a row to rename or delete it."
+            return "应用沙盒目录（可自由读写）。长按条目可重命名或删除。"
         }
         if model.isSystemIndex {
-            return "Select a precise /private/var target. No virtual folders are shown as successful access."
+            return "请选择具体的 /private/var 系统目标。真实路径访问成功后方可浏览。"
         }
         if model.canEdit {
-            return "Real read/write access is verified. System-file edits and deletions use safety backups; critical deletion requires typed confirmation."
+            return "已验证真实读写权限。修改与删除前会自动创建安全备份；删除核心文件需二次确认。"
         }
-        return "Real read access is verified. Tap the lock to test reversible write operations and opt in to changes."
+        return "已验证真实读取权限。点击右上角‘锁’图标执行写操作探针以解锁写入。"
     }
 
     @ViewBuilder
     private func editableMenu(for node: FileNode) -> some View {
         if model.canEdit && !node.isDirectory {
-            Button("Overwrite with Empty Payload ({})", systemImage: "xmark.bin") {
+            Button("覆盖为空 Payload ({})", systemImage: "xmark.bin") {
                 model.overwriteWithEmptyDict(node)
             }
         }
         if model.canRename(node) {
-            Button("Rename", systemImage: "pencil") {
+            Button("重命名", systemImage: "pencil") {
                 pendingName = node.url.lastPathComponent
                 renameNode = node
             }
         }
         if model.canDelete(node) {
-            Button("Delete", systemImage: "trash", role: .destructive) {
+            Button("删除", systemImage: "trash", role: .destructive) {
                 requestDelete(node)
             }
         }
@@ -1136,7 +1143,7 @@ private struct FilePreviewView: View {
                 NavigationLink {
                     TextFileEditorView(node: node, model: model)
                 } label: {
-                    Label("Edit", systemImage: "pencil")
+                    Label("编辑", systemImage: "pencil")
                 }
             }
         }
@@ -1156,12 +1163,12 @@ private struct TextFileEditorView: View {
         Group {
             if let loadError {
                 ContentUnavailableView(
-                    "Unable to Edit",
+                    "无法编辑",
                     systemImage: "exclamationmark.triangle",
                     description: Text(loadError)
                 )
             } else if !isLoaded {
-                ProgressView("Loading…")
+                ProgressView("正在加载…")
             } else {
                 TextEditor(text: $text)
                     .font(.system(.body, design: .monospaced))
@@ -1175,25 +1182,25 @@ private struct TextFileEditorView: View {
         .onAppear(perform: load)
         .toolbar {
             if isLoaded {
-                Button("Save", systemImage: "square.and.arrow.down") {
+                Button("保存", systemImage: "square.and.arrow.down") {
                     showSaveConfirmation = true
                 }
                 .disabled(!model.canEditContents(node))
             }
         }
-        .alert("Save changes?", isPresented: $showSaveConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Save", role: .destructive, action: save)
+        .alert("保存更改？", isPresented: $showSaveConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("保存", role: .destructive, action: save)
         } message: {
             Text(model.root.mode == .systemManaged
-                 ? "The current file will be backed up to Documents/SystemFileBackups, validated, then replaced atomically. Invalid plist or JSON content will be rejected."
-                 : "The file will be validated when applicable and replaced atomically.")
+                 ? "当前文件将被备份到 Documents/SystemFileBackups，经格式校验后原子替换写入。非法的 plist 或 JSON 内容将被拒绝。"
+                 : "文件将在必要时进行格式校验并以原子方式安全替换写入。")
         }
-        .alert("Editor status", isPresented: Binding(
+        .alert("编辑器状态", isPresented: Binding(
             get: { saveResult != nil },
             set: { if !$0 { saveResult = nil } }
         )) {
-            Button("OK") { saveResult = nil }
+            Button("好") { saveResult = nil }
         } message: {
             Text(saveResult ?? "")
         }
@@ -1212,7 +1219,7 @@ private struct TextFileEditorView: View {
     private func save() {
         do {
             try model.saveEditedText(text, to: node)
-            saveResult = "Saved successfully. A safety backup was created for system files."
+            saveResult = "保存成功。已为系统文件创建安全备份。"
         } catch {
             saveResult = error.localizedDescription
         }

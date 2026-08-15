@@ -53,4 +53,9 @@ enum TweakPaths {
     static var gestalt_dir = "/private/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/"
     static var mdm_profiles = "/private/var/containers/Shared/SystemGroup/systemgroup.com.apple.configurationprofiles/Library/ConfigurationProfiles"
     static var mdm_profiles_dir = "/private/var/containers/Shared/SystemGroup/systemgroup.com.apple.configurationprofiles/Library/ConfigurationProfiles/"
+    static var posterboard = "/private/var/mobile/Library/PosterBoard"
+    static var posterboard_dir = "/private/var/mobile/Library/PosterBoard/"
+    static var preferences = "/private/var/mobile/Library/Preferences"
+    static var preferences_dir = "/private/var/mobile/Library/Preferences/"
 }
+

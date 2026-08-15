@@ -196,3 +196,53 @@ func resolve_mdm_uuid_path() -> String? {
     print("(mdm-uuid) resolved container UUID path: \(uuidPath)")
     return uuidPath
 }
+
+/// 检查是否存在 MDM 备份文件
+func has_mdm_backups() -> Bool {
+    let fm = FileManager.default
+    guard let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return false }
+    let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
+    guard let contents = try? fm.contentsOfDirectory(atPath: backupRoot.path) else { return false }
+    return !contents.isEmpty
+}
+
+/// 还原 MDM 备份文件到目标目录
+func restore_mdm_backups() -> (restored: Int, error: String?) {
+    let fm = FileManager.default
+    guard let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first else {
+        return (0, "无法访问 Documents 目录")
+    }
+    let backupRoot = documents.appendingPathComponent("SystemFileBackups/MDM", isDirectory: true)
+    guard let backupFiles = try? fm.contentsOfDirectory(atPath: backupRoot.path), !backupFiles.isEmpty else {
+        return (0, "未找到任何 MDM 备份文件")
+    }
+
+    var restoredCount = 0
+    var lastError: String? = nil
+
+    for filename in backupFiles {
+        let backupFileURL = backupRoot.appendingPathComponent(filename)
+        let targetFileURL = URL(fileURLWithPath: TweakPaths.mdm_profiles).appendingPathComponent(filename)
+
+        guard let backupData = try? Data(contentsOf: backupFileURL) else { continue }
+
+        let targetPath = targetFileURL.path
+        let wfd = targetPath.withCString { Darwin.open($0, O_WRONLY | O_TRUNC | O_CREAT | O_CLOEXEC, 0o644) }
+        if wfd >= 0 {
+            let ok = backupData.withUnsafeBytes { ptr in
+                Darwin.write(wfd, ptr.baseAddress!, backupData.count) == backupData.count
+            }
+            Darwin.close(wfd)
+            if ok {
+                restoredCount += 1
+            } else {
+                lastError = String(cString: strerror(errno))
+            }
+        } else {
+            lastError = String(cString: strerror(errno))
+        }
+    }
+
+    return (restoredCount, lastError)
+}
+

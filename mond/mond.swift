@@ -42,7 +42,7 @@ struct mond: App {
                 .environmentObject(state)
                 .onAppear() {
                     if !is_supported() {
-                        Alertinator.shared.alert(title: "Not supported!", body: "Your iOS version may not be supported by mond.\nMond supports iOS 17.0 - 27.x.")
+                        Alertinator.shared.alert(title: "当前系统可能不受支持！", body: "您的 iOS 版本可能不完全兼容 mond。\nmond 支持 iOS 17.0 - 27.x。")
                     }
                 }
                 .overlay {
