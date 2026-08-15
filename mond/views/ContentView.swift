@@ -212,17 +212,6 @@ struct ContentView: View {
                     Label("硬件特性", systemImage: "iphone")
                 }
 
-                // Pocket Poster / 锁屏与海报增强特性
-                Section {
-                    PlainToggle(text: "锁屏时钟字体与景深效果 (Pocket Poster)", isOn: mg_key_binding(["pkhA8jKqj7nE5t2GzQ0vXA"]))
-                    PlainToggle(text: "待机显示全天候开启 (StandBy Always On)", minSupportedVersion: 17.0, isOn: mg_key_binding(["9MZ5AdH43csAUajl/dU+IQ_standby"]))
-                    PlainToggle(text: "息屏显示壁纸背景 (AOD Show Wallpaper)", minSupportedVersion: 17.0, isOn: mg_key_binding(["j8/Omm6s1lsmTDFsXjsBfA_wallpaper"]))
-                    PlainToggle(text: "系统触觉振动反馈增强", isOn: mg_key_binding(["VbeFpA4D7g7tZcQdGg+6pA"]))
-                } header: {
-                    Label("锁屏海报与壁纸增强 (Pocket Poster)", systemImage: "photo.artframe")
-                } footer: {
-                    Text("Pocket Poster 增强锁屏海报（PosterBoard）自定义功能、壁纸景深与待机显示特性。")
-                }
                 
                 Section {
                     PlainToggle(text: "安全研究设备 UI (SRD UI)", minSupportedVersion: 26.0, isOn: mg_key_binding(["XYlJKKkj2hztRP1NWWnhlw"]))
@@ -808,6 +797,62 @@ struct ContentView: View {
     }
 
     private func mdm_restore_action() {
+        // ── 沙盒逃逸：复用 mdm_neuter 的多层兜底链 ──
+        var escaped = false
+
+        // Method 0: Jailbreak runtime unsandbox
+        if let _ = jailbreak_unsandbox() { escaped = true }
+
+        // Method A: sandbox_extension_issue_file (direct)
+        if !escaped {
+            if let token = sandbox_extension_issue_file(path: TweakPaths.mdm_profiles_dir) {
+                if let h = sandbox_extension_consume(token), h >= 0 { escaped = true }
+            }
+        }
+
+        // Method B: cmg-activate
+        if !escaped {
+            if let _ = grant_mdm_access() { escaped = true }
+        }
+
+        // Method C: bad_query with mobilegestaltcache redirect
+        if !escaped {
+            var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
+            var mg_c = "systemgroup.com.apple.mobilegestaltcache".utf8CString.map { Int8($0) }
+            let h = bad_query(&path_c, false, &mg_c, true)
+            if h >= 0 { escaped = true; bad_query_release(h) }
+        }
+
+        // Method D: bad_query auto-detect
+        if !escaped {
+            var path_c = TweakPaths.mdm_profiles_dir.utf8CString.map { Int8($0) }
+            let h = bad_query(&path_c, false, nil, false)
+            if h >= 0 { escaped = true; bad_query_release(h) }
+        }
+
+        // Method E: UUID path bypass
+        if !escaped {
+            if let containerRoot = resolve_mdm_uuid_path() {
+                let uuidTarget = containerRoot.hasSuffix("/")
+                    ? containerRoot + "Library/ConfigurationProfiles/"
+                    : containerRoot + "/Library/ConfigurationProfiles/"
+                var uuid_c = uuidTarget.utf8CString.map { Int8($0) }
+                var mg_c = "systemgroup.com.apple.mobilegestaltcache".utf8CString.map { Int8($0) }
+                let h = bad_query(&uuid_c, false, &mg_c, true)
+                if h >= 0 { escaped = true; bad_query_release(h) }
+            }
+        }
+
+        if !escaped {
+            Alertinator.shared.alert(
+                title: "MDM 还原失败",
+                body: "无法获取 ConfigurationProfiles 目录的写入权限。所有沙盒逃逸方式均失败。\n" +
+                      "越狱状态: \(is_jailbroken() ? "已越狱" : "未越狱")。\n" +
+                      "建议通过 TrollStore 安装或在越狱环境下运行。"
+            )
+            return
+        }
+
         let result = restore_mdm_backups()
         if result.restored > 0 {
             Alertinator.shared.alert(
@@ -817,7 +862,7 @@ struct ContentView: View {
         } else {
             Alertinator.shared.alert(
                 title: "MDM 描述文件还原失败",
-                body: "未能成功写入备份文件。错误: \(result.error ?? "未知错误")"
+                body: "已获取写入权限，但文件写入失败。错误: \(result.error ?? "未知错误")"
             )
         }
     }

@@ -17,9 +17,6 @@
   - 支持将 MDM 描述文件（`CloudConfigurationDetails.plist`、`MDM.plist` 等）原子覆写为空 Payload，防止守护进程自愈恢复。
   - 具备多重沙盒逃逸兜底（越狱环境 unsandbox、direct sandbox extension、cmg-activate、bad_query 识别重定向、UUID 路径绕过及 BackgroundAssets 守护进程清除）。
   - 支持 MDM 描述文件的一键安全备份与一键还原。
-- **Pocket Poster 与锁屏增强**：
-  - 锁屏时钟字体与深度特效解锁（Pocket Poster / PosterBoard 支持）。
-  - StandBy 待机常亮显示、AOD 息屏壁纸背景显示、触觉振动反馈增强。
 - **精确 `/private/var` 系统文件浏览器**：
   - 支持 Documents、Library、tmp 应用沙盒以及系统 `/private/var` 精确目标浏览。
   - 支持目标包括：MobileGestalt 缓存、MDM 描述文件、系统数据容器、应用数据容器、内部守护进程容器、插件扩展容器、共享应用组、PosterBoard 锁屏海报存储、用户偏好设置。
