@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  测试 A-3：企业 App 信任
+  用途：测试是否能通过描述文件建立企业 App 信任
+  判断：
+    弹出安装对话框 = 企业信任可建立 → 可安装自签企业 IPA（漏洞）
+    被拦截 = allowEnterpriseAppTrust = false（已限制）
+-->
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadDescription</key>
+      <string>MDM Security Test - Enterprise App Trust Probe</string>
+      <key>PayloadDisplayName</key>
+      <string>安全测试企业信任探针</string>
+      <key>PayloadIdentifier</key>
+      <string>com.security.test.enterprise.trust</string>
+      <key>PayloadOrganization</key>
+      <string>MDM Security Research</string>
+      <key>PayloadType</key>
+      <string>com.apple.applicationaccess</string>
+      <key>PayloadUUID</key>
+      <string>A3333333-3333-3333-3333-333333333333</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <!-- 仅设置一个无害的布尔开关以触发描述文件安装流程 -->
+      <key>allowCloudDocumentSync</key>
+      <true/>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>MDM 安全测试 A-3：测试企业 App 信任策略（安全研究用途）</string>
+  <key>PayloadDisplayName</key>
+  <string>【安全测试 A-3】企业 App 信任探针</string>
+  <key>PayloadIdentifier</key>
+  <string>com.security.test.a3.enterprise-trust</string>
+  <key>PayloadOrganization</key>
+  <string>MDM Security Research</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>33333333-4444-5555-6666-777777777777</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>

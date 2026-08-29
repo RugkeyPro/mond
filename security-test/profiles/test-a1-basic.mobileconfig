@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  测试 A-1：最简 WebClip 描述文件
+  用途：仅测试系统是否允许弹出「安装描述文件」对话框
+  内容：一个主屏幕 WebClip 快捷方式（无害），不需要 acceptEAPTypes
+  判断：能弹对话框 = allowProfileInstallation 未限制 = 漏洞存在
+-->
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>FullScreen</key>
+      <false/>
+      <key>IsRemovable</key>
+      <true/>
+      <key>Label</key>
+      <string>安全测试探针</string>
+      <key>PayloadDescription</key>
+      <string>MDM Security Test - WebClip Probe (Harmless)</string>
+      <key>PayloadDisplayName</key>
+      <string>安全测试 WebClip 探针</string>
+      <key>PayloadIdentifier</key>
+      <string>com.security.test.webclip.probe</string>
+      <key>PayloadType</key>
+      <string>com.apple.webClip.managed</string>
+      <key>PayloadUUID</key>
+      <string>A1B2C3D4-E5F6-7890-ABCD-EF1234567890</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>URL</key>
+      <string>https://rugkeypro.github.io/mond/</string>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>MDM 安全测试 A-1：测试描述文件安装是否被限制（WebClip 无害探针）</string>
+  <key>PayloadDisplayName</key>
+  <string>【安全测试 A-1】描述文件安装探针</string>
+  <key>PayloadIdentifier</key>
+  <string>com.security.test.a1.profile-install</string>
+  <key>PayloadOrganization</key>
+  <string>MDM Security Research</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>11111111-2222-3333-4444-555555555555</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>

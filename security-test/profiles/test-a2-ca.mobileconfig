@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  测试 A-2：CA 证书注入
+  用途：测试是否能将自签 CA 加入设备信任链
+  内容：一个测试用自签名 CA 证书（30天有效期，仅用于安全研究）
+  
+  该证书由以下命令生成（仅供参考）：
+    openssl genrsa -out ca.key 2048
+    openssl req -new -x509 -key ca.key -out ca.crt -days 30 \
+      -subj "/CN=MDM Security Test CA/O=Security Research/C=CN"
+    openssl x509 -in ca.crt -outform DER | base64
+
+  判断：
+    弹出「安装证书」对话框 = CA 可注入 → 企业签名通道可利用（漏洞）
+    被拦截 = 证书策略已限制
+-->
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadCertificateFileName</key>
+      <string>security-test-ca.crt</string>
+      <!--
+        CI 运行时会自动用 Python cryptography 库生成真实证书替换此占位符
+        手动部署时请运行: python3 security-test/scripts/generate_test_ca.py
+        然后将生成的 generated-certs/test-ca.b64 内容替换下方 data 标签内容
+      -->
+      <key>PayloadContent</key>
+      <data>__CA_CERT_BASE64_PLACEHOLDER__</data>
+      <key>PayloadDescription</key>
+      <string>MDM Security Test - CA Certificate Injection Test</string>
+      <key>PayloadDisplayName</key>
+      <string>安全测试 CA 证书（30天有效）</string>
+      <key>PayloadIdentifier</key>
+      <string>com.security.test.ca.certificate</string>
+      <key>PayloadType</key>
+      <string>com.apple.security.root</string>
+      <key>PayloadUUID</key>
+      <string>AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>MDM 安全测试 A-2：CA 证书注入探针（安全研究用途，30天后自动失效）</string>
+  <key>PayloadDisplayName</key>
+  <string>【安全测试 A-2】CA 证书注入探针</string>
+  <key>PayloadIdentifier</key>
+  <string>com.security.test.a2.ca-injection</string>
+  <key>PayloadOrganization</key>
+  <string>MDM Security Research</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>22222222-3333-4444-5555-666666666666</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>

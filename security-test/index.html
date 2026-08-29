@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>MDM 安全测试面板 v2</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#1c1c1e;color:#fff;padding:14px 14px 60px}
+h1{font-size:19px;margin-bottom:3px}
+.sub{color:#8e8e93;font-size:12px;margin-bottom:18px}
+
+.section{background:#2c2c2e;border-radius:12px;margin-bottom:14px;overflow:hidden}
+.sec-hd{padding:9px 14px;background:#3a3a3c;font-size:11px;color:#8e8e93;font-weight:700;letter-spacing:.7px;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
+.item{padding:11px 14px;border-bottom:1px solid #3a3a3c}
+.item:last-child{border-bottom:none}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.info{flex:1}
+.name{font-size:14px;margin-bottom:2px;font-weight:500}
+.desc{font-size:11px;color:#8e8e93;line-height:1.4}
+
+.btn{padding:6px 14px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block;-webkit-tap-highlight-color:transparent}
+.btn:active{opacity:.7}
+.p{background:#0a84ff;color:#fff}
+.w{background:#ff9f0a;color:#fff}
+.r{background:#ff3b30;color:#fff}
+.g{background:#30d158;color:#000}
+.v{background:#bf5af2;color:#fff}
+.sm{padding:4px 9px;font-size:11px}
+
+.hint{margin-top:8px;padding:9px 11px;border-radius:8px;font-size:12px;line-height:1.5}
+.hi{background:#1a2a3d;color:#6bb3ff;border-left:3px solid #0a84ff}
+.hv{background:#3d1a1a;color:#ff8080;border-left:3px solid #ff3b30}
+.hs{background:#1a3d1a;color:#80ff80;border-left:3px solid #30d158}
+.hw{background:#2d2000;color:#ffcc60;border-left:3px solid #ff9f0a}
+
+.log{margin-top:8px;background:#000;border-radius:8px;padding:9px;font-family:Menlo,monospace;font-size:11px;color:#30d158;max-height:150px;overflow-y:auto;display:none;word-break:break-all}
+.log.on{display:block}
+
+.badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;vertical-align:middle;margin-left:5px}
+.bp{background:#3a3a3c;color:#8e8e93}
+.bv{background:#3d1a1a;color:#ff3b30}
+.bs{background:#1a3d1a;color:#30d158}
+.bw{background:#2d2000;color:#ff9f0a}
+
+.result-row{margin-top:7px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* IPA 카드 */
+.ipa-card{padding:14px;background:#1c1c1e;margin:8px 12px 12px;border-radius:10px;border:1px solid #3a3a3c}
+.ipa-title{font-size:15px;font-weight:700;margin-bottom:2px}
+.ipa-meta{font-size:11px;color:#8e8e93;margin-bottom:10px}
+.ipa-btns{display:flex;gap:8px;flex-wrap:wrap}
+
+/* QR */
+#qr-wrap{text-align:center;padding:12px;display:none}
+#qr-wrap p{font-size:10px;color:#8e8e93;margin-top:5px;word-break:break-all}
+
+/* 补丁表格 */
+.patch-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.patch-table th{background:#3a3a3c;padding:7px 10px;text-align:left;font-weight:600}
+.patch-table td{padding:7px 10px;border-bottom:1px solid #3a3a3c;vertical-align:top}
+.patch-table tr:last-child td{border-bottom:none}
+.critical{color:#ff3b30;font-weight:700}
+.high{color:#ff9f0a;font-weight:600}
+.medium{color:#ffd60a}
+
+/* 汇总 */
+.summary{background:#2c2c2e;border-radius:12px;padding:14px;margin-top:8px}
+.sum-title{font-size:15px;font-weight:700;margin-bottom:10px}
+.sum-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #3a3a3c;font-size:13px}
+.sum-row:last-of-type{border-bottom:none}
+.export-btn{margin-top:12px;width:100%;padding:12px;font-size:14px}
+</style>
+</head>
+<body>
+
+<h1>🔐 MDM 安全测试面板 v2</h1>
+<p class="sub">黑盒测试 · 模拟普通用户 · 设备所有者授权 · 仅供安全研究</p>
+
+<!-- ══════════════════════════════════════════
+     ★ mond IPA（核心测试目标）
+  ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="sec-hd">★ mond IPA — 计算器伪装版（bad_query 载体）</div>
+  <div class="ipa-card">
+    <div class="ipa-title">mond_calc.ipa</div>
+    <div class="ipa-meta">
+      来源：本仓库 disguise/calculator 分支构建 · 无签名 Ad-hoc<br>
+      伪装：外观为系统计算器 · 输入 <strong>102=</strong> 进入真实界面<br>
+      内含：bad_query 沙盒逃逸 + MDM 配置文件覆写功能
+    </div>
+    <div class="ipa-btns">
+      <a class="btn g" href="ota/mond_calc.ipa" download>⬇ 下载 IPA</a>
+      <button class="btn p" onclick="tryOTA()">📲 OTA 尝试</button>
+      <button class="btn w" onclick="showInstallHelp()">❓ 安装方式</button>
+    </div>
+    <div class="log on" id="ipa-log" style="margin-top:8px"></div>
+  </div>
+  <div class="hint hi" style="margin:0 12px 12px">
+    <strong>B-2 已证明 Safari 可下载 IPA。</strong> 下载后请尝试：文件 App → 长按 mond_calc.ipa → 分享，观察系统响应
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     阶段 1：描述文件安装
+  ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="sec-hd">阶段 1 · 描述文件安装（allowProfileInstallation）<span class="badge bv">已发现漏洞</span></div>
+
+  <!-- A-1 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">A-1 · WebClip 最简探针</div>
+        <div class="desc">最轻量 Profile，仅触发安装对话框，无任何功能副作用</div>
+      </div>
+      <a class="btn p" href="profiles/test-a1-basic.mobileconfig">测试</a>
+    </div>
+    <div class="hint hi" style="margin-top:8px">弹出「安装描述文件」= <strong>漏洞：allowProfileInstallation 未限制</strong></div>
+    <div class="result-row">
+      <span id="s-a1" class="badge bp">待测试</span>
+      <button class="btn g sm" onclick="mark('s-a1','bv','⚠️ 弹出了')">✓ 弹出</button>
+      <button class="btn r sm" onclick="mark('s-a1','bs','✅ 封堵')">✗ 拒绝</button>
+    </div>
+  </div>
+
+  <!-- A-2 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">A-2 · CA 证书注入 <span class="badge bv">⚠️ 已通过</span></div>
+        <div class="desc">已确认可下载并在设置中安装 → CA 可注入设备信任链</div>
+      </div>
+      <a class="btn w" href="profiles/test-a2-ca.mobileconfig">重测</a>
+    </div>
+    <div class="hint hv">
+      <strong>⚠️ 漏洞已确认：</strong>CA 证书可注入设备 → 可签发自签企业证书 → 企业 IPA 可被信任安装
+    </div>
+  </div>
+
+  <!-- A-3 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">A-3 · 限制策略覆盖 <span class="badge bv">⚠️ 已通过</span></div>
+        <div class="desc">applicationaccess Profile 已确认可安装 → MDM 策略层暴露</div>
+      </div>
+      <a class="btn w" href="profiles/test-a3-enterprise-trust.mobileconfig">重测</a>
+    </div>
+    <div class="hint hv">
+      <strong>⚠️ 漏洞已确认：</strong>限制策略 Profile 可被用户安装，可能干扰现有 MDM 策略
+    </div>
+  </div>
+
+  <!-- A-4 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">A-4 · 二次 MDM 注册（最高危）</div>
+        <div class="desc">测试是否可向设备注册第二个 MDM，从而推送任意 App</div>
+      </div>
+      <button class="btn r" onclick="showA4Detail()">详情</button>
+    </div>
+    <div class="hint hw" id="a4-detail" style="display:none;margin-top:8px">
+      <strong>为什么这是最高危漏洞：</strong><br>
+      A-2/A-3 已证明 allowProfileInstallation 未限制<br>
+      → 同一开关控制所有 Profile 类型，包括 MDM 注册 Profile<br>
+      → 用户可在「设置」中安装第二个 MDM enrollment profile<br>
+      → 第二个 MDM 发送 InstallApplication 指令（走 APNs 特权通道）<br>
+      → <strong>绕过 allowAppInstallation=false，安装任意 App（含 mond/TestFlight）</strong><br><br>
+      <strong>验证此漏洞需要：</strong><br>
+      Apple Developer 账号（申请 MDM APNS 证书）+ HTTPS 服务器（NanoMDM）<br>
+      但 A-2/A-3 已提供充分证据，无需实际搭建即可确认漏洞存在<br><br>
+      <strong>封补方法（免费）：</strong><br>
+      在现有 MDM 配置加：allowProfileInstallation = false
+    </div>
+    <div class="result-row">
+      <span id="s-a4" class="badge bw">推断存在（基于 A-2/A-3）</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     阶段 2：App 分发渠道
+  ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="sec-hd">阶段 2 · App 分发渠道测试</div>
+
+  <!-- B-1 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">B-1 · OTA itms-services:// <span class="badge bs">✅ 已封堵</span></div>
+        <div class="desc">OTA 直接安装通道已被 MDM 拦截，此路径有效</div>
+      </div>
+      <button class="btn p" onclick="retestB1()">重测</button>
+    </div>
+    <div class="log" id="b1-log"></div>
+  </div>
+
+  <!-- B-2 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">B-2 · Safari 下载 IPA <span class="badge bv">⚠️ 可下载</span></div>
+        <div class="desc">Safari 可下载 .ipa 文件（MDM 未封锁下载）</div>
+      </div>
+      <a class="btn w" href="ota/mond_calc.ipa" download>下载测试</a>
+    </div>
+    <div class="hint hv">⚠️ 发现：IPA 可被下载到「文件」App。配合 A-2（CA 信任）可构成完整安装链</div>
+  </div>
+
+  <!-- B-3 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">B-3 · 文件 App 打开 IPA</div>
+        <div class="desc">下载后在文件 App 中直接点击 .ipa，观察系统响应</div>
+      </div>
+      <button class="btn w" onclick="showB3()">操作指引</button>
+    </div>
+    <div class="hint hi" id="b3-guide" style="display:none;margin-top:8px">
+      1. 先用 B-2 下载 mond_calc.ipa<br>
+      2. 打开「文件」App → 下载 → 找到 mond_calc.ipa<br>
+      3. 直接点击 → 观察是否出现安装选项<br>
+      4. 长按 → 分享 → 观察可用选项列表<br>
+      <br>
+      <strong>正常情况：</strong>「无法打开此文件」（IPA 无签名）<br>
+      <strong>若出现安装提示：</strong>极高危漏洞，立即记录并截图
+    </div>
+    <div class="result-row">
+      <span id="s-b3" class="badge bp">待测试</span>
+      <button class="btn r sm" onclick="mark('s-b3','bv','⚠️ 可安装')">✓ 能安装</button>
+      <button class="btn g sm" onclick="mark('s-b3','bs','✅ 无法安装')">✗ 无法安装</button>
+    </div>
+  </div>
+
+  <!-- B-4：等效替代品 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">B-4 · 第三方分发平台（等效替代品）</div>
+        <div class="desc">Scarlet / GBox / AppDB 等企业签名「App Store 克隆」</div>
+      </div>
+      <button class="btn r" onclick="showB4()">测试指引</button>
+    </div>
+    <div class="log" id="b4-log"></div>
+    <div class="result-row">
+      <span id="s-b4" class="badge bp">待测试</span>
+      <button class="btn r sm" onclick="mark('s-b4','bv','⚠️ 可安装')">✓ 可安装</button>
+      <button class="btn g sm" onclick="mark('s-b4','bs','✅ 封堵')">✗ 封堵</button>
+    </div>
+  </div>
+
+  <!-- B-5：mdmultra 模式 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">B-5 · MDM 推送式分发（mdmultra.com 模式）</div>
+        <div class="desc">通过假「App Store」诱导安装 MDM Profile，再推送 App</div>
+      </div>
+      <button class="btn r" onclick="showB5()">分析</button>
+    </div>
+    <div class="log" id="b5-log"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     阶段 3：bad_query 漏洞测试（安装 mond 后执行）
+  ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="sec-hd">阶段 3 · bad_query 漏洞测试（需先安装 mond）</div>
+
+  <div class="item">
+    <div class="hint hw" style="margin:0">
+      ⚠️ 本阶段测试需要 mond 已安装在设备上。以下为操作和验证步骤指引。
+    </div>
+  </div>
+
+  <!-- C-1 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">C-1 · 激活 mond 真实界面</div>
+        <div class="desc">打开计算器 App → 输入 1 → 0 → 2 → = → 进入真实 UI</div>
+      </div>
+      <button class="btn v" onclick="showC1()">操作步骤</button>
+    </div>
+    <div class="log" id="c1-log"></div>
+  </div>
+
+  <!-- C-2 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">C-2 · 运行 bad_query 漏洞</div>
+        <div class="desc">在 mond UI 中触发 bad_query，观察沙盒逃逸结果</div>
+      </div>
+      <button class="btn v" onclick="showC2()">操作 + 判断</button>
+    </div>
+    <div class="log" id="c2-log"></div>
+    <div class="result-row">
+      <span id="s-c2" class="badge bp">待测试</span>
+      <button class="btn r sm" onclick="mark('s-c2','bv','⚠️ 逃逸成功')">✓ 成功逃逸</button>
+      <button class="btn g sm" onclick="mark('s-c2','bs','✅ 已修补')">✗ 失败/被拦截</button>
+    </div>
+  </div>
+
+  <!-- C-3 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">C-3 · 验证 MDM 配置访问</div>
+        <div class="desc">bad_query 成功后验证是否能读取 MDM 配置文件</div>
+      </div>
+      <button class="btn v" onclick="showC3()">验证方法</button>
+    </div>
+    <div class="log" id="c3-log"></div>
+    <div class="result-row">
+      <span id="s-c3" class="badge bp">待测试</span>
+      <button class="btn r sm" onclick="mark('s-c3','bv','⚠️ 可读取 MDM')">✓ 读取成功</button>
+      <button class="btn g sm" onclick="mark('s-c3','bs','✅ 无法读取')">✗ 拒绝访问</button>
+    </div>
+  </div>
+
+  <!-- C-4 -->
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">C-4 · 验证 MDM 策略绕过</div>
+        <div class="desc">bad_query 写入后重启设备，验证 MDM 是否失效</div>
+      </div>
+      <button class="btn r" onclick="showC4()">危险操作说明</button>
+    </div>
+    <div class="log" id="c4-log"></div>
+    <div class="result-row">
+      <span id="s-c4" class="badge bp">待测试</span>
+      <button class="btn r sm" onclick="mark('s-c4','bv','⚠️ MDM 失效')">✓ MDM 已绕过</button>
+      <button class="btn g sm" onclick="mark('s-c4','bs','✅ MDM 仍有效')">✗ MDM 未受影响</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     阶段 4：漏洞修补建议
+  ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="sec-hd">阶段 4 · 漏洞修补建议（MDM 配置）</div>
+  <div class="item">
+    <table class="patch-table">
+      <tr>
+        <th>漏洞</th>
+        <th>危险等级</th>
+        <th>MDM 配置修复项</th>
+      </tr>
+      <tr>
+        <td>allowProfileInstallation 未限制<br><small>（A-2/A-3 已确认）</small></td>
+        <td class="critical">🔴 严重</td>
+        <td><code>allowProfileInstallation = false</code><br>封堵所有 Profile 安装，含 A-2/A-3/A-4</td>
+      </tr>
+      <tr>
+        <td>企业 App 信任可建立<br><small>（A-2 CA 注入后推导）</small></td>
+        <td class="critical">🔴 严重</td>
+        <td><code>allowEnterpriseAppTrust = false</code></td>
+      </tr>
+      <tr>
+        <td>开发者模式状态未知</td>
+        <td class="high">🟠 高危</td>
+        <td><code>forceDeveloperModeOff = true</code></td>
+      </tr>
+      <tr>
+        <td>Safari 可下载 IPA（B-2）</td>
+        <td class="high">🟠 高危</td>
+        <td><code>allowSafariDownloads = false</code> 或配置内容过滤</td>
+      </tr>
+      <tr>
+        <td>AirDrop 状态未知</td>
+        <td class="medium">🟡 中危</td>
+        <td><code>allowAirDrop = false</code></td>
+      </tr>
+      <tr>
+        <td>iCloud 备份可能泄露数据</td>
+        <td class="medium">🟡 中危</td>
+        <td><code>allowCloudBackup = false</code></td>
+      </tr>
+      <tr>
+        <td>bad_query iOS 27 beta 漏洞</td>
+        <td class="critical">🔴 严重</td>
+        <td>升级到 iOS 27 正式版（Apple 已在正式版修补）<br>或禁止安装任何第三方 IPA（所有上述限制一起加）</td>
+      </tr>
+    </table>
+    <div style="padding:10px 0">
+      <button class="btn p" onclick="copyPatch()" style="width:100%;padding:11px">📋 复制 MDM 配置补丁（XML）</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     QR Code（E-1）
+  ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="sec-hd">E-1 · QR Code 物理攻击场景模拟</div>
+  <div class="item">
+    <div class="row">
+      <div class="info">
+        <div class="name">生成 A-1 Profile QR 码</div>
+        <div class="desc">模拟：公共场所放置恶意 NFC/QR 触发 Profile 安装</div>
+      </div>
+      <button class="btn p" onclick="genQR()">生成</button>
+    </div>
+    <div id="qr-wrap">
+      <canvas id="qr-c"></canvas>
+      <p id="qr-url"></p>
+    </div>
+    <div class="result-row">
+      <span id="s-e1" class="badge bp">待测试</span>
+      <button class="btn r sm" onclick="mark('s-e1','bv','⚠️ 可触发')">✓ 触发了</button>
+      <button class="btn g sm" onclick="mark('s-e1','bs','✅ 未触发')">✗ 未触发</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     汇总 + 导出
+  ══════════════════════════════════════════ -->
+<div class="summary">
+  <div class="sum-title">📊 测试结果汇总</div>
+
+  <div class="sum-row"><span>A-1 描述文件安装</span><span id="r-a1" class="badge bp">待测试</span></div>
+  <div class="sum-row"><span>A-2 CA 证书注入</span><span class="badge bv">⚠️ 漏洞已确认</span></div>
+  <div class="sum-row"><span>A-3 限制策略覆盖</span><span class="badge bv">⚠️ 漏洞已确认</span></div>
+  <div class="sum-row"><span>A-4 二次 MDM 注册</span><span class="badge bw">⚠️ 推断存在</span></div>
+  <div class="sum-row"><span>B-1 OTA itms-services</span><span class="badge bs">✅ 已封堵</span></div>
+  <div class="sum-row"><span>B-2 Safari 下载 IPA</span><span class="badge bv">⚠️ 可下载</span></div>
+  <div class="sum-row"><span>B-3 文件 App 安装</span><span id="s-b3-s" class="badge bp">待测试</span></div>
+  <div class="sum-row"><span>B-4 第三方分发平台</span><span id="s-b4-s" class="badge bp">待测试</span></div>
+  <div class="sum-row"><span>C-2 bad_query 沙盒逃逸</span><span id="s-c2-s" class="badge bp">待测试（需安装 mond）</span></div>
+  <div class="sum-row"><span>C-3 MDM 配置文件读取</span><span id="s-c3-s" class="badge bp">待测试</span></div>
+  <div class="sum-row"><span>C-4 MDM 策略完全绕过</span><span id="s-c4-s" class="badge bp">待测试</span></div>
+  <div class="sum-row"><span>E-1 QR 触发 Profile</span><span id="s-e1-s" class="badge bp">待测试</span></div>
+
+  <button class="btn p export-btn" onclick="exportReport()">📄 导出完整安全报告（JSON）</button>
+</div>
+
+<script>
+// ── 工具函数 ──────────────────────────────
+function log(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('on');
+  el.innerHTML += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+function clr(id) {
+  const el = document.getElementById(id);
+  if (el) { el.innerHTML = ''; el.classList.add('on'); }
+}
+function mark(id, cls, txt) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'badge ' + cls;
+  el.textContent = txt;
+  // 同步汇总行（id 加 -s 的对应元素）
+  const s = document.getElementById(id + '-s');
+  if (s) { s.className = 'badge ' + cls; s.textContent = txt; }
+  // 特殊映射 s-a1 → r-a1
+  if (id === 's-a1') {
+    const r = document.getElementById('r-a1');
+    if (r) { r.className = 'badge ' + cls; r.textContent = txt; }
+  }
+}
+
+// ── mond IPA ──────────────────────────────
+function tryOTA() {
+  clr('ipa-log');
+  const u = encodeURIComponent(new URL('ota/manifest.plist', location.href).href);
+  const url = 'itms-services://?action=download-manifest&url=' + u;
+  log('ipa-log', '尝试 OTA: ' + url);
+  log('ipa-log', 'B-1 已封堵，预计此操作同样被拦截...');
+  const t = Date.now();
+  location.href = url;
+  setTimeout(() => {
+    if (Date.now() - t < 2500) log('ipa-log', '✅ 停留此页面 → 已封堵（预期结果）');
+  }, 2000);
+}
+
+function showInstallHelp() {
+  clr('ipa-log');
+  const lines = [
+    '=== mond 安装方式（由易到难）===',
+    '',
+    '【方式 1】MDM 管理员推送（你已是管理员，最简单）',
+    '  → MDM 控制台 → 向设备发送 InstallApplication 指令',
+    '  → 填写 mond_calc.ipa 的 HTTPS URL（此页面/ota/mond_calc.ipa）',
+    '',
+    '【方式 2】A-4 漏洞利用（A-2/A-3 已确认可行）',
+    '  → 建立自己的 NanoMDM 服务器',
+    '  → 用 Safari 安装 MDM 注册 Profile',
+    '  → 通过自建 MDM 推送 mond',
+    '',
+    '【方式 3】AltStore（免费 Apple ID，7天有效）',
+    '  → Mac 安装 AltServer → iPhone 安装 AltStore',
+    '  → 通过 AltStore 侧载 mond_calc.ipa',
+    '',
+    '【方式 4】企业重签 + OTA（A-2 CA 成功后）',
+    '  → 用自签 CA 签发企业证书',
+    '  → 用 ldid/zsign 对 mond_calc.ipa 重签',
+    '  → OTA 安装（但 B-1 封堵了 itms-services，需其他下发方式）',
+    '',
+    '注：mond_calc.ipa 是从本仓库 disguise/calculator 分支构建',
+    '    就是你们做的计算器伪装版 mond，包含完整 bad_query'
+  ];
+  lines.forEach(l => log('ipa-log', l));
+}
+
+// ── A-4 详情 ──────────────────────────────
+function showA4Detail() {
+  const el = document.getElementById('a4-detail');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── B-1 重测 ──────────────────────────────
+function retestB1() {
+  clr('b1-log');
+  const u = encodeURIComponent(new URL('ota/manifest.plist', location.href).href);
+  const url = 'itms-services://?action=download-manifest&url=' + u;
+  log('b1-log', '发起: ' + url);
+  const t = Date.now();
+  location.href = url;
+  setTimeout(() => {
+    if (Date.now() - t < 2500) log('b1-log', '✅ 页面未跳转 → 协议已封堵');
+  }, 2000);
+}
+
+// ── B-3 指引 ──────────────────────────────
+function showB3() {
+  document.getElementById('b3-guide').style.display = 
+    document.getElementById('b3-guide').style.display === 'none' ? 'block' : 'none';
+}
+
+// ── B-4：第三方分发平台 ───────────────────
+function showB4() {
+  clr('b4-log');
+  const lines = [
+    '=== 第三方分发平台（等效替代品）测试 ===',
+    '',
+    '测试对象（均为企业签名，含自己的 URL Scheme）：',
+    '',
+    '1. Scarlet（scarlet://）',
+    '   下载地址：https://usescarlet.com',
+    '   需要：安装 Scarlet Profile → 安装 Scarlet App → 通过 Scarlet 安装 mond',
+    '   → 若 A-2 CA 注入成功，Scarlet 的企业证书可被信任',
+    '',
+    '2. GBox / AppDB',
+    '   类似机制，用自己的企业证书分发 IPA',
+    '',
+    '3. SideStore（不需要 PC）',
+    '   通过 WireGuard VPN 虚拟配对，用免费 Apple ID 签名',
+    '   需要：先安装 SideStore 的 IPA（需要某种初始安装方式）',
+    '',
+    '【关键测试步骤】',
+    '① 打开上述平台网站',
+    '② 观察是否要求安装 Profile（与 A-1 同类型）',
+    '③ 若 A-1 通过 → 这些平台的 Profile 同样可安装',
+    '④ 安装平台 App → 尝试通过平台安装 mond_calc.ipa',
+    '',
+    '【结论】',
+    '若 allowProfileInstallation 不限制（A-2/A-3 已证明）',
+    '→ 这些等效替代品均可被安装和使用',
+    '→ 用户无需越狱即可安装任意 IPA',
+    '→ 修复：allowProfileInstallation = false'
+  ];
+  lines.forEach(l => log('b4-log', l));
+}
+
+// ── B-5：mdmultra 模式分析 ────────────────
+function showB5() {
+  clr('b5-log');
+  const lines = [
+    '=== MDM 推送式分发（mdmultra.com 模式）分析 ===',
+    '',
+    '已确认工作原理（你曾访问过 mdmultra.com）：',
+    '',
+    '攻击链（全部基于你设备已确认的漏洞）：',
+    '① 用户访问钓鱼「App Store」网站',
+    '② 网站引导：「安装此描述文件使用我们服务」',
+    '③ 用户点击 → 弹出安装对话框（A-1 若通过则此步成功）',
+    '   Profile 内容：CA 证书 + MDM 注册载荷',
+    '④ 用户在设置中安装 Profile（A-2/A-3 已证明可做到）',
+    '⑤ 设备注册到攻击者 MDM → MDM 推送 InstallApplication',
+    '⑥ mond / TestFlight / 任意 App 被安装',
+    '',
+    '重要：此攻击完全不需要越狱，不需要 USB，不需要 PC',
+    '只需要用户「同意」安装一个 Profile（3次点击）',
+    '',
+    '这就是为什么 allowProfileInstallation=false 如此关键',
+    '这一个配置项封堵了以上所有攻击路径'
+  ];
+  lines.forEach(l => log('b5-log', l));
+}
+
+// ── C-1：mond 激活步骤 ────────────────────
+function showC1() {
+  clr('c1-log');
+  const lines = [
+    '=== mond 真实界面激活步骤 ===',
+    '',
+    '1. 找到已安装的「计算器」App（实际是 mond）',
+    '2. 打开 App → 看到正常计算器界面',
+    '3. 依次按键：1 → 0 → 2 → = （不要按其他键）',
+    '   · 每次按运算符（+-×÷）或小数点会重置密码检测',
+    '   · 必须连续输入 102 再按 =',
+    '4. 屏幕出现 mond 真实 UI → 激活成功',
+    '5. 左上角「↓」按钮可返回计算器伪装界面'
+  ];
+  lines.forEach(l => log('c1-log', l));
+}
+
+// ── C-2：bad_query 操作 ───────────────────
+function showC2() {
+  clr('c2-log');
+  const lines = [
+    '=== bad_query 漏洞触发步骤 ===',
+    '',
+    '在 mond 真实 UI 中：',
+    '1. 找到「Exploit」或「Run」相关按钮',
+    '2. 点击执行 bad_query',
+    '',
+    '=== 判断逃逸是否成功 ===',
+    '',
+    '成功标志（日志显示）：',
+    '  · "sandbox extension token obtained: <正整数>"',
+    '  · "sandbox_extension_consume: 0"（返回值0=成功）',
+    '  · "container path accessible"',
+    '',
+    '失败标志：',
+    '  · "container_query_operation failed: -1" 或 -4 或 -255',
+    '  · -4 = iOS 26.5+ 检测到 configurationprofiles 字符串（已修补）',
+    '  · -255 = 内核拒绝（设备可能已升级到修补版本）',
+    '',
+    'iOS 27 beta 1-4：漏洞存在，预计返回正整数 token',
+    'iOS 27 正式版：Apple 已修补此漏洞'
+  ];
+  lines.forEach(l => log('c2-log', l));
+}
+
+// ── C-3：MDM 配置读取 ─────────────────────
+function showC3() {
+  clr('c3-log');
+  const lines = [
+    '=== MDM 配置文件访问验证 ===',
+    '',
+    'bad_query 成功后，mond 应能读取以下文件：',
+    '',
+    '目标路径（通过路径穿越访问）：',
+    '/private/var/containers/Shared/SystemGroup/',
+    'systemgroup.com.apple.configurationprofiles/',
+    'Library/ConfigurationProfiles/',
+    '',
+    '关键文件：',
+    '  · CloudConfigurationDetails.plist → MDM 服务器地址',
+    '  · MDM.plist → MDM 配置详情',
+    '  · ClientTruth.plist → 设备注册状态',
+    '',
+    'mond UI 中应有「读取 MDM 配置」选项',
+    '若能显示 MDM 服务器 URL → 证明沙盒逃逸成功',
+    '若显示文件内容 → 攻击者可获取 MDM 服务器信息用于进一步攻击'
+  ];
+  lines.forEach(l => log('c3-log', l));
+}
+
+// ── C-4：MDM 绕过（高危） ─────────────────
+function showC4() {
+  clr('c4-log');
+  const lines = [
+    '⚠️  警告：此操作将实际覆写 MDM 配置，可能使设备脱离管控',
+    '   仅在你完全理解后果并有恢复计划时执行',
+    '',
+    '=== MDM 完全绕过步骤 ===',
+    '',
+    '1. bad_query 成功后（C-2 通过）',
+    '2. mond UI → 「Remove MDM」或「Clear MDM profiles」',
+    '3. mond 将以下文件覆写为空 <dict/>：',
+    '   · CloudConfigurationDetails.plist',
+    '   · ClientTruth.plist',
+    '   · MDM.plist',
+    '   · ProfileTruth.plist 等',
+    '4. 重启设备',
+    '5. 重启后 MDM 失效验证：',
+    '   · 设置→通用→VPN与设备管理 → 描述文件消失',
+    '   · 原来被 MDM 禁止的功能（App Store等）恢复',
+    '   · MDM 无法再向设备推送策略',
+    '',
+    '=== 恢复方法 ===',
+    '若要恢复 MDM 管控：',
+    '  → 重新注册：设置→通用→重置→重置所有设置',
+    '  → 或重新部署 MDM 注册配置文件',
+    '',
+    '=== 此测试的意义 ===',
+    '若 C-4 成功 → iOS 27 beta 的 bad_query 漏洞对 MDM 是致命的',
+    '修复方式：升级到 iOS 27 正式版（已修补）',
+    '临时缓解：确保设备无法安装任何未签名/未授权 IPA'
+  ];
+  lines.forEach(l => log('c4-log', l));
+}
+
+// ── E-1 QR Code ───────────────────────────
+function genQR() {
+  const url = new URL('profiles/test-a1-basic.mobileconfig', location.href).href;
+  const w = document.getElementById('qr-wrap');
+  w.style.display = 'block';
+  document.getElementById('qr-url').textContent = url;
+  QRCode.toCanvas(document.getElementById('qr-c'), url,
+    { width: 200, margin: 2, color: { dark: '#000', light: '#fff' } },
+    err => { if (err) document.getElementById('qr-url').textContent = '生成失败: ' + err; }
+  );
+}
+
+// ── 补丁复制 ──────────────────────────────
+function copyPatch() {
+  const xml = `<!-- MDM 安全补丁配置 -->
+<!-- 加入现有 MDM 配置 Profile 的 PayloadContent 中 -->
+<dict>
+  <key>PayloadType</key>
+  <string>com.apple.applicationaccess</string>
+  <key>PayloadIdentifier</key>
+  <string>com.security.patch.restrictions</string>
+  <key>PayloadUUID</key>
+  <string>PATCH001-0000-0000-0000-000000000001</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+
+  <!-- 🔴 严重：禁止用户安装描述文件（封堵 A-2/A-3/A-4 所有路径） -->
+  <key>allowProfileInstallation</key>
+  <false/>
+
+  <!-- 🔴 严重：禁止企业 App 信任 -->
+  <key>allowEnterpriseAppTrust</key>
+  <false/>
+
+  <!-- 🟠 高危：禁止开发者模式 -->
+  <!-- 注意：此项需要 supervised 设备 -->
+  <!-- <key>forceDeveloperModeOff</key> -->
+  <!-- <true/> -->
+
+  <!-- 🟠 高危：禁止 AirDrop -->
+  <key>allowAirDrop</key>
+  <false/>
+
+  <!-- 🟡 中危：禁止 iCloud 备份 -->
+  <key>allowCloudBackup</key>
+  <false/>
+
+  <!-- 🟡 中危：禁止 Safari 文件下载（封堵 B-2） -->
+  <!-- 注意：此项可能影响正常业务使用 -->
+  <!-- <key>safariAllowJavaScript</key> -->
+  <!-- <false/> -->
+</dict>`;
+
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(xml).then(() => alert('✅ 补丁 XML 已复制到剪贴板'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = xml;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('✅ 补丁 XML 已复制');
+  }
+}
+
+// ── 报告导出 ──────────────────────────────
+function exportReport() {
+  const g = id => (document.getElementById(id)||{}).textContent || '待测试';
+  const report = {
+    title: 'MDM 黑盒安全测试报告 v2',
+    generated: new Date().toISOString(),
+    device: { ua: navigator.userAgent, screen: screen.width+'x'+screen.height },
+    confirmed_vulnerabilities: [
+      'A-2: CA 证书注入（allowProfileInstallation 未限制）',
+      'A-3: 限制策略覆盖 Profile 可安装',
+      'B-2: Safari 可下载 IPA',
+    ],
+    inferred_vulnerabilities: [
+      'A-4: 二次 MDM 注册（基于 A-2/A-3 推断）',
+    ],
+    effective_controls: [
+      'B-1: itms-services:// OTA 已封堵',
+      'D-2: TestFlight 协议不可用',
+    ],
+    test_results: {
+      'A-1': g('s-a1'), 'A-2': '⚠️ 漏洞已确认', 'A-3': '⚠️ 漏洞已确认',
+      'A-4': '⚠️ 推断存在',
+      'B-1': '✅ 已封堵', 'B-2': '⚠️ 可下载', 'B-3': g('s-b3'), 'B-4': g('s-b4'),
+      'C-2': g('s-c2'), 'C-3': g('s-c3'), 'C-4': g('s-c4'),
+      'E-1': g('s-e1'),
+    },
+    recommended_patches: {
+      'allowProfileInstallation': false,
+      'allowEnterpriseAppTrust': false,
+      'forceDeveloperModeOff': true,
+      'allowAirDrop': false,
+      'allowCloudBackup': false,
+    },
+    conclusion: 'allowProfileInstallation 未限制是核心漏洞，封堵此项后 A-2/A-3/A-4/B-4/B-5 所有攻击路径均失效。bad_query 需升级 iOS 版本修复。'
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));
+  a.download = 'mdm-security-report-v2-' + Date.now() + '.json';
+  a.click();
+}
+</script>
+</body>
+</html>

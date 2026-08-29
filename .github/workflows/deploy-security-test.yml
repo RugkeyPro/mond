@@ -1,0 +1,254 @@
+name: 部署 MDM 安全测试面板到 GitHub Pages
+
+on:
+  push:
+    branches:
+      - security/mdm-blackbox-test
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: security/mdm-blackbox-test
+
+      # ── 获取最新 mond IPA ──────────────────────────────────
+      - name: 下载最新 mond IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p security-test/ota
+
+          echo "正在查找最新 mond IPA artifact..."
+
+          # 获取最新成功的 calc-unsigned-build workflow 运行
+          LATEST_RUN=$(gh api \
+            "repos/${REPO}/actions/workflows/calc-unsigned-build.yml/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].id' 2>/dev/null || echo "")
+
+          if [ -n "$LATEST_RUN" ] && [ "$LATEST_RUN" != "null" ]; then
+            echo "找到构建 Run ID: $LATEST_RUN"
+
+            # 获取 artifact 下载 URL
+            ARTIFACT_URL=$(gh api \
+              "repos/${REPO}/actions/runs/${LATEST_RUN}/artifacts" \
+              --jq '.artifacts[] | select(.name == "mond-calc-unsigned") | .archive_download_url' 2>/dev/null || echo "")
+
+            if [ -n "$ARTIFACT_URL" ]; then
+              echo "下载 IPA artifact..."
+              gh api "$ARTIFACT_URL" > /tmp/mond_artifact.zip 2>/dev/null || true
+
+              # 解压并找到 IPA
+              unzip -o /tmp/mond_artifact.zip -d /tmp/mond_extracted/ 2>/dev/null || true
+              IPA_FILE=$(find /tmp/mond_extracted -name "*.ipa" | head -1)
+
+              if [ -n "$IPA_FILE" ]; then
+                cp "$IPA_FILE" security-test/ota/mond_calc.ipa
+                IPA_SIZE=$(stat -c%s security-test/ota/mond_calc.ipa)
+                echo "✅ IPA 已就位: mond_calc.ipa (${IPA_SIZE} bytes)"
+              else
+                echo "⚠️ 未找到 .ipa 文件，使用占位文件"
+                echo "MOND-IPA-PLACEHOLDER-RUN-calc-unsigned-build-WORKFLOW-FIRST" > security-test/ota/mond_calc.ipa
+              fi
+            else
+              echo "⚠️ 未找到 artifact URL，使用占位文件"
+              echo "MOND-IPA-PLACEHOLDER-NO-ARTIFACT" > security-test/ota/mond_calc.ipa
+            fi
+          else
+            echo "⚠️ 未找到成功的构建记录，使用占位文件"
+            echo "MOND-IPA-PLACEHOLDER-NO-BUILD" > security-test/ota/mond_calc.ipa
+            echo ""
+            echo "  请先运行 calc-unsigned-build 工作流："
+            echo "  Actions → Build Unsigned Calculator IPA → Run workflow"
+          fi
+
+      # 生成测试 CA（用于 A-2 测试）
+      - name: 生成测试 CA 证书
+        run: |
+          cd security-test
+          pip install -q cryptography
+          python3 - << 'PYEOF'
+          from cryptography import x509
+          from cryptography.x509.oid import NameOID
+          from cryptography.hazmat.primitives import hashes, serialization
+          from cryptography.hazmat.primitives.asymmetric import rsa
+          from datetime import datetime, timedelta
+          import base64, json
+
+          # 生成 CA 私钥
+          ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+          # 生成 CA 证书
+          ca_name = x509.Name([
+              x509.NameAttribute(NameOID.COMMON_NAME, "MDM Security Test CA"),
+              x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Security Research"),
+              x509.NameAttribute(NameOID.COUNTRY_NAME, "CN"),
+          ])
+          ca_cert = (
+              x509.CertificateBuilder()
+              .subject_name(ca_name)
+              .issuer_name(ca_name)
+              .public_key(ca_key.public_key())
+              .serial_number(x509.random_serial_number())
+              .not_valid_before(datetime.utcnow())
+              .not_valid_after(datetime.utcnow() + timedelta(days=30))
+              .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+              .sign(ca_key, hashes.SHA256())
+          )
+
+          # DER + Base64
+          ca_der = ca_cert.public_bytes(serialization.Encoding.DER)
+          ca_b64 = base64.b64encode(ca_der).decode()
+
+          # 更新 mobileconfig（匹配新的占位符）
+          with open("profiles/test-a2-ca.mobileconfig", "r") as f:
+              content = f.read()
+          content = content.replace("__CA_CERT_BASE64_PLACEHOLDER__", ca_b64)
+          with open("profiles/test-a2-ca.mobileconfig", "w") as f:
+              f.write(content)
+
+          print(f"✅ CA 证书已生成，Base64 长度: {len(ca_b64)}")
+
+          # 生成企业证书（用 CA 签发）
+          ent_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+          ent_cert = (
+              x509.CertificateBuilder()
+              .subject_name(x509.Name([
+                  x509.NameAttribute(NameOID.COMMON_NAME, "MDM Security Test Enterprise"),
+                  x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Security Research"),
+              ]))
+              .issuer_name(ca_name)
+              .public_key(ent_key.public_key())
+              .serial_number(x509.random_serial_number())
+              .not_valid_before(datetime.utcnow())
+              .not_valid_after(datetime.utcnow() + timedelta(days=30))
+              .sign(ca_key, hashes.SHA256())
+          )
+
+          ent_der = ent_cert.public_bytes(serialization.Encoding.DER)
+          ent_b64 = base64.b64encode(ent_der).decode()
+
+          # 输出元数据（用于测试面板）
+          meta = {
+              "ca_fingerprint": ca_cert.fingerprint(hashes.SHA256()).hex(),
+              "ca_expires": (datetime.utcnow() + timedelta(days=30)).isoformat(),
+              "ent_fingerprint": ent_cert.fingerprint(hashes.SHA256()).hex(),
+              "generated_at": datetime.utcnow().isoformat(),
+          }
+          with open("cert-meta.json", "w") as f:
+              json.dump(meta, f, indent=2)
+          print("✅ 企业证书已生成")
+          print(f"✅ 证书元数据: {json.dumps(meta, indent=2)}")
+          PYEOF
+
+      # 生成 OTA manifest（占位，实际 IPA 需要真实签名）
+      - name: 生成 OTA 测试 manifest
+        env:
+          GITHUB_PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: |
+          mkdir -p security-test/ota
+          cat > security-test/ota/manifest.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>items</key>
+            <array>
+              <dict>
+                <key>assets</key>
+                <array>
+                  <dict>
+                    <key>kind</key>
+                    <string>software-package</string>
+                    <key>url</key>
+                    <string>${GITHUB_PAGES_URL}/ota/test-dummy.ipa</string>
+                  </dict>
+                </array>
+                <key>metadata</key>
+                <dict>
+                  <key>bundle-identifier</key>
+                  <string>com.security.test.ota.probe</string>
+                  <key>bundle-version</key>
+                  <string>1.0</string>
+                  <key>kind</key>
+                  <string>software</string>
+                  <key>title</key>
+                  <string>安全测试 OTA 探针</string>
+                </dict>
+              </dict>
+            </array>
+          </dict>
+          </plist>
+          EOF
+
+          # 创建一个极小的占位 IPA（空 zip）
+          echo "OTA-TEST-PROBE" > security-test/ota/test-dummy.ipa
+          echo "✅ OTA manifest 已生成"
+          echo "🔗 OTA URL: itms-services://?action=download-manifest&url=${GITHUB_PAGES_URL}/ota/manifest.plist"
+
+      # 更新测试面板中的实际 URL
+      - name: 注入 GitHub Pages URL 到测试面板
+        env:
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          # 更新 index.html 中的服务器 URL 占位符
+          sed -i "s|你的服务器|${PAGES_URL}|g" security-test/index.html
+          sed -i "s|你的域名|${{ github.repository_owner }}.github.io|g" security-test/index.html
+
+          echo "✅ URL 已注入: $PAGES_URL"
+
+      # 部署到 GitHub Pages
+      - name: 设置 GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: 上传页面内容
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: security-test/
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: 打印测试面板地址
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  ✅ MDM 安全测试面板已部署"
+          echo "═══════════════════════════════════════════════════════════"
+          echo ""
+          echo "  📱 在受测设备的 Safari 中打开："
+          echo "  ${{ steps.deployment.outputs.page_url }}"
+          echo ""
+          echo "  🔬 测试覆盖范围："
+          echo "  A. 描述文件安装 (allowProfileInstallation)"
+          echo "  B. OTA App 安装 (itms-services://)"
+          echo "  C. 开发者模式 (forceDeveloperModeOff)"
+          echo "  D. URL Scheme 可用性"
+          echo "  E. NFC / QR Code 触发"
+          echo "  F. 网络层 MDM 通信安全"
+          echo "  G. AirDrop 接收状态"
+          echo ""
+          echo "  📋 测试完成后点击「导出安全测试报告」"
+          echo "═══════════════════════════════════════════════════════════"
