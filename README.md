@@ -33,6 +33,15 @@
 
 ---
 
+### 📱 MDM 监管设备（无法安装 App 时）
+
+如果你的设备受 MDM 监管且禁止安装 App（`allowAppInstallation` 被设为 `false`），导致无法通过全能签、AltStore 等常规方式安装 mond：
+
+1. **推荐方案**：通过 Xcode USB 直连部署，详见 [XCODE_DEPLOY_MDM_zh.md](XCODE_DEPLOY_MDM_zh.md)
+2. **免安装替代**：使用电脑端 Python 脚本 `scripts/mdm_bypass_pc.py` 直接操作设备 MDM 描述文件（基于 `pymobiledevice3`）
+
+---
+
 ### 致谢与鸣谢 (Credits)
 - [roooot](https://github.com/rooootdev) - 主要开发者
 - [forcequit](https://github.com/forcequitOS) - bad_query 漏洞发现与实现

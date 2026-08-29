@@ -27,7 +27,7 @@ var path: String {
 @main
 struct mond: App {
     @StateObject private var state = AppState()
-    
+
     init() {
         UserDefaults.standard.register(defaults: ["exploit_method": "bad_query"])
         if !is_debugged() {
@@ -35,16 +35,14 @@ struct mond: App {
             dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
         }
     }
-    
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            // ── disguise/calculator 分支 ──────────────────────────
+            // 对外表现为「计算器」App。
+            // 在计算器中输入 102 再按 = 即可进入真实 mond 界面。
+            CalcView()
                 .environmentObject(state)
-                .onAppear() {
-                    if !is_supported() {
-                        Alertinator.shared.alert(title: "当前系统可能不受支持！", body: "您的 iOS 版本可能不完全兼容 mond。\nmond 支持 iOS 17.0 - 27.x。")
-                    }
-                }
                 .overlay {
                     if state.show_respring {
                         RespringView()
@@ -53,6 +51,12 @@ struct mond: App {
                             .onAppear {
                                 print("(respring) respringing now...")
                             }
+                    }
+                }
+                .onAppear {
+                    if !is_supported() {
+                        // 保持静默：计算器不弹系统版本警告
+                        print("(mond) warning: iOS version may not be fully supported")
                     }
                 }
         }

@@ -312,8 +312,15 @@ struct ContentView: View {
                     print("(mond) valid token saved, skipping exploit")
                     state.exploit_succeeded = true
                 }
-                
                 mg_load()
+
+                // 版本警告（在此处检测，兼容计算器伪装入口）
+                if !is_supported() {
+                    Alertinator.shared.alert(
+                        title: "当前系统可能不受支持！",
+                        body: "您的 iOS 版本可能不完全兼容 mond。\nmond 支持 iOS 17.0 - 27.x。"
+                    )
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
