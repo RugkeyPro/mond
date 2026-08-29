@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  测试 A-4：自定义 MDM 注册探针（最关键的攻击面）
+  
+  背景：A-2/A-3 已证明 allowProfileInstallation 未被限制
+  
+  原理：
+    MDM 注册 Profile 可通过 Safari 下载后在设置中安装
+    一旦设备注册到「攻击者的 MDM」，该 MDM 可以：
+      - 发送 InstallApplication 指令安装任意 App（绕过 allowAppInstallation=false）
+      - 包括 TestFlight、mond 或其他任何 App
+    
+    这是比 OTA 更强大的攻击面，因为 InstallApplication MDM 指令
+    不受 allowAppInstallation 策略约束。
+  
+  此文件格式：OTA MDM Enrollment Profile（需要配合真实 MDM 服务器）
+  判断：能弹出「注册」对话框 = 可注册第二个 MDM（最高危漏洞）
+  
+  注意：实际部署需要：
+    1. Apple 颁发的 MDM Push 证书（APNS）
+    2. 真实 HTTPS MDM 服务器（NanoMDM/MicroMDM）
+    3. 签名的 Enrollment Profile
+  
+  当前文件是结构演示（无真实 MDM 服务器），用于测试设备是否允许 MDM 注册
+-->
+<plist version="1.0">
+<dict>
+  <!--
+    真实的 MDM Enrollment Profile 需要以下字段：
+    
+    PayloadContent 中的 com.apple.mdm 载荷：
+      CheckInURL    - MDM 服务器 CheckIn 地址
+      ServerURL     - MDM 服务器指令地址
+      Topic         - Apple APNS Topic（来自 MDM Push 证书）
+      IdentityCertificateUUID - 设备身份证书 UUID
+    
+    以及 com.apple.security.scep 或 com.apple.security.pkcs12 
+    提供设备身份证书
+    
+    完整示例参见 NanoMDM 文档：
+    https://github.com/micromdm/nanomdm/blob/main/docs/enroll.md
+  -->
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadDescription</key>
+      <string>MDM 安全测试：自定义 MDM 注册探针（演示结构）</string>
+      <key>PayloadDisplayName</key>
+      <string>安全测试 MDM 注册</string>
+      <key>PayloadIdentifier</key>
+      <string>com.security.test.mdm.enrollment.content</string>
+      <key>PayloadOrganization</key>
+      <string>MDM Security Research</string>
+      <key>PayloadType</key>
+      <string>com.apple.mdm</string>
+      <key>PayloadUUID</key>
+      <string>A4444444-4444-4444-4444-444444444444</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <!-- 以下字段在真实场景中需替换为你的 MDM 服务器信息 -->
+      <key>CheckInURL</key>
+      <string>https://YOUR-MDM-SERVER/mdm/checkin</string>
+      <key>ServerURL</key>
+      <string>https://YOUR-MDM-SERVER/mdm</string>
+      <key>Topic</key>
+      <string>com.apple.mgmt.External.YOUR-APNS-TOPIC</string>
+      <key>SignMessage</key>
+      <true/>
+      <key>CheckOutWhenRemoved</key>
+      <true/>
+      <key>AccessRights</key>
+      <!-- 8191 = 所有权限（InstallApplication 需要 App Management 权限） -->
+      <integer>8191</integer>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>MDM 安全测试 A-4：验证是否可注册额外 MDM（最关键攻击面）</string>
+  <key>PayloadDisplayName</key>
+  <string>【安全测试 A-4】自定义 MDM 注册探针</string>
+  <key>PayloadIdentifier</key>
+  <string>com.security.test.a4.mdm-enrollment</string>
+  <key>PayloadOrganization</key>
+  <string>MDM Security Research</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>44444444-5555-6666-7777-888888888888</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>
