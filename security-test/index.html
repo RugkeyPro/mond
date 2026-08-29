@@ -4,456 +4,604 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>MDM 安全测试面板</title>
+<!-- 真实 QR Code 库 -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, sans-serif; background: #1c1c1e; color: #fff; padding: 16px; }
+body { font-family: -apple-system, sans-serif; background: #1c1c1e; color: #fff; padding: 16px 16px 40px; }
 h1 { font-size: 20px; margin-bottom: 4px; }
 .subtitle { color: #8e8e93; font-size: 13px; margin-bottom: 20px; }
+
+/* 区块 */
 .section { background: #2c2c2e; border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
-.section-title { padding: 12px 16px; background: #3a3a3c; font-size: 13px; color: #8e8e93; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
-.test-item { padding: 14px 16px; border-bottom: 1px solid #3a3a3c; display: flex; align-items: center; justify-content: space-between; }
+.section-title { padding: 10px 16px; background: #3a3a3c; font-size: 12px; color: #8e8e93; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+
+/* 测试项 */
+.test-item { padding: 12px 16px; border-bottom: 1px solid #3a3a3c; }
 .test-item:last-child { border-bottom: none; }
-.test-info { flex: 1; }
+.test-row { display: flex; align-items: center; justify-content: space-between; }
+.test-info { flex: 1; padding-right: 12px; }
 .test-name { font-size: 15px; margin-bottom: 2px; }
 .test-desc { font-size: 12px; color: #8e8e93; }
-.btn { padding: 7px 16px; border-radius: 8px; border: none; font-size: 14px; font-weight: 500; cursor: pointer; min-width: 70px; text-align: center; text-decoration: none; display: inline-block; }
-.btn-primary { background: #0a84ff; color: white; }
-.btn-warn { background: #ff9f0a; color: white; }
-.btn-danger { background: #ff3b30; color: white; }
-.btn-success { background: #30d158; color: white; }
-.result-bar { padding: 10px 16px; font-size: 13px; display: none; }
-.result-bar.show { display: block; }
-.vuln { background: #3d1a1a; color: #ff6b6b; border-left: 3px solid #ff3b30; }
-.safe { background: #1a3d1a; color: #6bff6b; border-left: 3px solid #30d158; }
-.info { background: #1a2a3d; color: #6bb3ff; border-left: 3px solid #0a84ff; }
-.status-badge { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
+/* 按钮 */
+.btn { padding: 7px 16px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; min-width: 72px; text-align: center; text-decoration: none; display: inline-block; -webkit-tap-highlight-color: transparent; }
+.btn-primary  { background: #0a84ff; color: #fff; }
+.btn-warn     { background: #ff9f0a; color: #fff; }
+.btn-danger   { background: #ff3b30; color: #fff; }
+.btn-success  { background: #30d158; color: #000; }
+.btn-purple   { background: #bf5af2; color: #fff; }
+.btn:active   { opacity: .7; }
+
+/* 结果区 */
+.result-hint { margin-top: 8px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; }
+.hint-info    { background: #1a2a3d; color: #6bb3ff; border-left: 3px solid #0a84ff; }
+.hint-vuln    { background: #3d1a1a; color: #ff8080; border-left: 3px solid #ff3b30; }
+.hint-safe    { background: #1a3d1a; color: #80ff80; border-left: 3px solid #30d158; }
+
+/* 日志 */
+.log-box { margin-top: 8px; background: #000; border-radius: 8px; padding: 10px; font-family: 'Menlo', monospace; font-size: 11px; color: #30d158; max-height: 160px; overflow-y: auto; display: none; }
+.log-box.show { display: block; }
+
+/* 状态徽章 */
+.badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
 .badge-pending { background: #3a3a3c; color: #8e8e93; }
-.badge-vuln { background: #3d1a1a; color: #ff3b30; }
-.badge-safe { background: #1a3d1a; color: #30d158; }
-.log-area { background: #000; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; color: #30d158; margin: 12px 16px; max-height: 200px; overflow-y: auto; display: none; }
-.log-area.show { display: block; }
+.badge-vuln    { background: #3d1a1a; color: #ff3b30; }
+.badge-safe    { background: #1a3d1a; color: #30d158; }
+.badge-info    { background: #1a2a3d; color: #0a84ff; }
+
+/* IPA 区块 */
+.ipa-card { padding: 16px; background: #1c1c1e; margin: 8px 12px 12px; border-radius: 10px; border: 1px solid #3a3a3c; }
+.ipa-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.ipa-meta  { font-size: 12px; color: #8e8e93; margin-bottom: 12px; }
+.ipa-btns  { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* QR */
+#qr-wrap { text-align: center; padding: 12px; display: none; }
+#qr-wrap canvas, #qr-wrap img { border-radius: 8px; }
+#qr-wrap p { font-size: 11px; color: #8e8e93; margin-top: 6px; word-break: break-all; }
+
+/* 汇总 */
 .summary { background: #2c2c2e; border-radius: 12px; padding: 16px; margin-top: 8px; }
-.summary-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
-.summary-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #3a3a3c; font-size: 14px; }
-.summary-row:last-child { border-bottom: none; }
+.summary-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+.sum-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #3a3a3c; font-size: 14px; }
+.sum-row:last-of-type { border-bottom: none; }
+.export-btn { margin-top: 14px; width: 100%; padding: 13px; font-size: 15px; }
 </style>
 </head>
 <body>
 
 <h1>🔐 MDM 安全测试面板</h1>
-<p class="subtitle">黑盒测试 · 模拟普通用户视角 · 仅用于安全研究</p>
+<p class="subtitle">黑盒测试 · 模拟普通用户视角 · 设备所有者授权安全研究</p>
 
-<!-- 测试 A：描述文件安装 -->
+<!-- ═══════════════════════════════════════════════════
+     ★ mond IPA 下载（核心目标）
+  ═══════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">★ mond IPA — bad_query 测试主体</div>
+  <div class="ipa-card">
+    <div class="ipa-title">mond（计算器伪装版）</div>
+    <div class="ipa-meta">iOS MobileGestalt 微调工具 · 含 bad_query 沙盒逃逸 · 密码 102</div>
+    <div class="ipa-btns">
+      <a class="btn btn-success" href="ota/mond_calc.ipa" download>⬇ 下载 IPA</a>
+      <button class="btn btn-primary" onclick="tryOTAInstall()">📲 尝试 OTA 安装</button>
+      <button class="btn btn-warn" onclick="showIPAHelp()">❓ 安装说明</button>
+    </div>
+    <div id="ipa-log" class="log-box"></div>
+  </div>
+  <div class="result-hint hint-info" style="margin:0 12px 12px;">
+    <strong>IPA 来源</strong>：由 GitHub Actions 构建（无签名 · Ad-hoc entitlements）<br>
+    B-2 测试证明 Safari 可下载 .ipa 文件，本区块测试下一步：系统是否允许安装
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     攻击面 A：描述文件安装
+  ═══════════════════════════════════════════════════ -->
 <div class="section">
   <div class="section-title">攻击面 A · 描述文件安装（allowProfileInstallation）</div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">A-1 · 基础 Profile 安装测试</div>
-      <div class="test-desc">触发系统「安装描述文件」对话框</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">A-1 · WebClip Profile 探针</div>
+        <div class="test-desc">最简描述文件，测试系统是否弹出安装对话框</div>
+      </div>
+      <a class="btn btn-primary" href="profiles/test-a1-basic.mobileconfig">测试</a>
     </div>
-    <a class="btn btn-primary" href="profiles/test-a1-basic.mobileconfig" id="btn-a1">测试</a>
-  </div>
-  <div class="result-bar info show" id="res-a1">
-    ✅ 弹出对话框 = <strong>漏洞存在</strong>（allowProfileInstallation 未限制）<br>
-    ❌ 无响应/提示禁止 = 此路径已封堵
+    <div class="result-hint hint-info" style="margin-top:8px;">
+      ✅ 弹出「安装描述文件」= <strong>漏洞：allowProfileInstallation 未限制</strong><br>
+      ❌ 提示禁止/无反应 = 此路径已封堵
+    </div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+      <span style="font-size:13px;color:#8e8e93;">测试结果：</span>
+      <span class="badge badge-pending" id="sum-a">待测试</span>
+      <button class="btn btn-success" style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-a','vuln','⚠️ 漏洞存在')">✓ 弹出了</button>
+      <button class="btn btn-danger"  style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-a','safe','✅ 已封堵')">✗ 被拦截</button>
+    </div>
   </div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">A-2 · CA 证书注入测试</div>
-      <div class="test-desc">尝试添加自定义根证书（企业签名前提）</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">A-2 · CA 证书注入</div>
+        <div class="test-desc">测试是否能向设备注入自定义根证书（企业签名前提）</div>
+      </div>
+      <a class="btn btn-warn" href="profiles/test-a2-ca.mobileconfig">测试</a>
     </div>
-    <a class="btn btn-warn" href="profiles/test-a2-ca.mobileconfig" id="btn-a2">测试</a>
+    <div class="result-hint hint-info" style="margin-top:8px;">
+      ✅ 弹出「安装证书」= CA 可注入 → <strong>企业签名 IPA 可信任（漏洞）</strong><br>
+      ❌ 被拦截 = allowProfileInstallation 或证书策略已限制
+    </div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+      <span class="badge badge-pending" id="sum-a2">待测试</span>
+      <button class="btn btn-success" style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-a2','vuln','⚠️ CA 可注入')">✓ 弹出了</button>
+      <button class="btn btn-danger"  style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-a2','safe','✅ 已封堵')">✗ 被拦截</button>
+    </div>
   </div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">A-3 · 企业 App 信任开关</div>
-      <div class="test-desc">尝试通过 Profile 建立企业 App 信任</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">A-3 · 限制策略探针</div>
+        <div class="test-desc">applicationaccess 有效载荷，测试限制策略能否被覆盖</div>
+      </div>
+      <a class="btn btn-danger" href="profiles/test-a3-enterprise-trust.mobileconfig">测试</a>
     </div>
-    <a class="btn btn-danger" href="profiles/test-a3-enterprise-trust.mobileconfig" id="btn-a3">测试</a>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+      <span class="badge badge-pending" id="sum-a3">待测试</span>
+      <button class="btn btn-success" style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-a3','vuln','⚠️ 可安装')">✓ 弹出了</button>
+      <button class="btn btn-danger"  style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-a3','safe','✅ 已封堵')">✗ 被拦截</button>
+    </div>
   </div>
 </div>
 
-<!-- 测试 B：OTA 安装 -->
+<!-- ═══════════════════════════════════════════════════
+     攻击面 B：OTA 安装
+  ═══════════════════════════════════════════════════ -->
 <div class="section">
   <div class="section-title">攻击面 B · OTA App 安装（itms-services://）</div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">B-1 · itms-services 协议测试</div>
-      <div class="test-desc">触发 OTA 安装流程，观察系统响应</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">B-1 · itms-services 协议 <span class="badge badge-safe" style="font-size:11px;">已封堵 ✅</span></div>
+        <div class="test-desc">B-1 已确认被 MDM 封堵，记录为有效防护</div>
+      </div>
+      <button class="btn btn-primary" onclick="testOTA_b1()">重测</button>
     </div>
-    <a class="btn btn-primary" href="javascript:testOTA()" id="btn-b1">测试</a>
-  </div>
-  <div class="result-bar info show" id="res-b1">
-    ✅ 弹出「安装」对话框 = OTA 通道可用<br>
-    ❌ Safari 报错/无响应 = itms-services 已被拦截
+    <div id="b1-log" class="log-box"></div>
   </div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">B-2 · Safari 文件下载测试</div>
-      <div class="test-desc">测试 Safari 是否能下载 .ipa 文件</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">B-2 · Safari 下载 IPA <span class="badge badge-vuln" style="font-size:11px;">⚠️ 可下载</span></div>
+        <div class="test-desc">Safari 可下载 .ipa 文件，测试下载后系统如何处理</div>
+      </div>
+      <a class="btn btn-warn" href="ota/mond_calc.ipa" download>下载</a>
     </div>
-    <a class="btn btn-warn" href="ota/test-dummy.ipa" download id="btn-b2">下载测试</a>
+    <div class="result-hint hint-vuln" style="margin-top:8px;">
+      ⚠️ <strong>发现：Safari 可下载 IPA</strong>（MDM 未封锁此通道）<br>
+      下载后 → 文件保存到「文件」App → 尝试用「文件」App 打开 .ipa 查看系统响应
+    </div>
+  </div>
+
+  <div class="test-item">
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">B-3 · 下载后用文件 App 安装（新测试）</div>
+        <div class="test-desc">下载 IPA → 「文件」App → 长按 → 分享 → 观察响应</div>
+      </div>
+      <button class="btn btn-warn" onclick="showB3Guide()">操作指引</button>
+    </div>
+    <div id="b3-guide" class="result-hint hint-info" style="display:none;margin-top:8px;">
+      <strong>步骤：</strong><br>
+      1. 点击上方 B-2「下载」→ Safari 下载 mond_calc.ipa<br>
+      2. 打开「文件」App → 下载 → 找到 mond_calc.ipa<br>
+      3. 长按文件 → 分享 → 观察是否有「安装」或应用图标<br>
+      4. 或直接点击文件，观察系统提示<br>
+      <strong>预期：</strong>大多数情况显示「无法打开」，记录实际响应
+    </div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+      <span class="badge badge-pending" id="sum-b3">待测试</span>
+      <button class="btn btn-success" style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-b3','vuln','⚠️ 可安装')">✓ 可安装</button>
+      <button class="btn btn-danger"  style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-b3','safe','✅ 无法安装')">✗ 无法安装</button>
+    </div>
   </div>
 </div>
 
-<!-- 测试 C：开发者模式 -->
+<!-- ═══════════════════════════════════════════════════
+     攻击面 C：开发者模式
+  ═══════════════════════════════════════════════════ -->
 <div class="section">
   <div class="section-title">攻击面 C · 开发者模式（forceDeveloperModeOff）</div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">C-1 · 检查开发者模式入口</div>
-      <div class="test-desc">路径：设置 → 隐私与安全 → 开发者模式</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">C-1 · 开发者模式入口检测</div>
+        <div class="test-desc">设置 → 隐私与安全性 → 开发者模式</div>
+      </div>
+      <button class="btn btn-primary" onclick="showC1Info()">检测</button>
     </div>
-    <a class="btn btn-primary" href="javascript:showDevModeGuide()">查看指引</a>
-  </div>
-  <div class="result-bar info show" id="res-c1">
-    <strong>手动检查路径：</strong><br>
-    ① 设置 → 隐私与安全性 → 开发者模式<br>
-    ② 如果选项存在且可点击 = <span style="color:#ff6b6b">forceDeveloperModeOff 未配置（漏洞）</span><br>
-    ③ 如果灰色/不存在 = 已通过 MDM 禁用
+    <div id="c1-info" class="log-box"></div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+      <span class="badge badge-pending" id="sum-c">待测试</span>
+      <button class="btn btn-success" style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-c','vuln','⚠️ 入口存在')">✓ 可点击</button>
+      <button class="btn btn-danger"  style="padding:4px 10px;font-size:12px;" onclick="markResult('sum-c','safe','✅ 已禁用')">✗ 灰色/不存在</button>
+    </div>
   </div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">C-2 · Xcode 无线连接探测</div>
-      <div class="test-desc">检测设备是否曾与 Mac 配对</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">C-2 · 设备信息采集</div>
+        <div class="test-desc">采集当前设备的 User-Agent、iOS 版本等基础信息</div>
+      </div>
+      <button class="btn btn-warn" onclick="collectDeviceInfo()">采集</button>
     </div>
-    <button class="btn btn-warn" onclick="testXcodeWireless()">探测</button>
+    <div id="c2-log" class="log-box"></div>
   </div>
-  <div id="res-c2" class="log-area"></div>
 </div>
 
-<!-- 测试 D：URL Scheme -->
+<!-- ═══════════════════════════════════════════════════
+     攻击面 D：URL Scheme
+  ═══════════════════════════════════════════════════ -->
 <div class="section">
-  <div class="section-title">攻击面 D · URL Scheme 与协议处理</div>
+  <div class="section-title">攻击面 D · URL Scheme 可用性</div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">D-1 · App Store 协议可用性</div>
-      <div class="test-desc">测试 itms:// 和 itms-apps:// 是否可跳转</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">D-1 · 常用 iOS URL Scheme 批量测试</div>
+        <div class="test-desc">逐一测试，跳转成功后须手动回本页记录结果</div>
+      </div>
+      <button class="btn btn-primary" onclick="runSchemeTests()">开始</button>
     </div>
-    <button class="btn btn-primary" onclick="testURLSchemes()">批量测试</button>
+    <div id="d1-log" class="log-box"></div>
+    <div id="d1-btns" style="display:none;margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"></div>
   </div>
-  <div id="res-d1" class="log-area"></div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">D-2 · TestFlight 协议测试</div>
-      <div class="test-desc">测试 itms-beta:// scheme 是否存在</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">D-2 · TestFlight 协议 <span class="badge badge-safe" style="font-size:11px;">未安装 ✅</span></div>
+        <div class="test-desc">itms-beta:// 无效 = TestFlight 未安装（MDM 已限制安装）</div>
+      </div>
+      <span style="color:#8e8e93;font-size:12px;">已确认</span>
     </div>
-    <a class="btn btn-warn" href="itms-beta://" id="btn-d2">测试</a>
   </div>
 </div>
 
-<!-- 测试 E：NFC / QR 触发 -->
+<!-- ═══════════════════════════════════════════════════
+     攻击面 E：NFC / QR Code
+  ═══════════════════════════════════════════════════ -->
 <div class="section">
   <div class="section-title">攻击面 E · NFC / QR Code 触发</div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">E-1 · QR Code 触发 Profile 安装</div>
-      <div class="test-desc">生成指向 A-1 测试的 QR Code（物理入侵场景）</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">E-1 · QR Code 触发 Profile 安装</div>
+        <div class="test-desc">生成 A-1 测试 Profile 的 QR 码（模拟物理攻击场景）</div>
+      </div>
+      <button class="btn btn-primary" onclick="generateQR()">生成 QR</button>
     </div>
-    <button class="btn btn-primary" onclick="generateQR()">生成 QR</button>
-  </div>
-  <div id="qr-container" style="padding:16px;display:none;">
-    <canvas id="qr-canvas"></canvas>
-    <p style="font-size:12px;color:#8e8e93;margin-top:8px;">用相机扫描此码（模拟物理攻击场景）</p>
-  </div>
-
-  <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">E-2 · NFC NDEF Profile 触发</div>
-      <div class="test-desc">需要硬件：NFC 标签写入 Profile URL</div>
+    <div id="qr-wrap">
+      <canvas id="qr-canvas"></canvas>
+      <p id="qr-url-text"></p>
+      <p style="color:#ff9f0a;font-size:12px;margin-top:4px;">⚠️ 用相机扫描此码，测试物理接触场景是否能触发 Profile 安装</p>
     </div>
-    <button class="btn btn-warn" onclick="showNFCGuide()">查看指引</button>
   </div>
 </div>
 
-<!-- 测试 F：网络层 -->
+<!-- ═══════════════════════════════════════════════════
+     攻击面 F：网络层
+  ═══════════════════════════════════════════════════ -->
 <div class="section">
   <div class="section-title">攻击面 F · 网络层与 MDM 通信</div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">F-1 · MDM CheckIn 端点探测</div>
-      <div class="test-desc">探测 MDM 服务器地址（从 Profile 读取）</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">F-1 · 网络连通性与 HTTPS 探测</div>
+        <div class="test-desc">探测常用 MDM 服务商端点是否可达</div>
+      </div>
+      <button class="btn btn-primary" onclick="probeNetwork()">探测</button>
     </div>
-    <button class="btn btn-primary" onclick="probeMDMEndpoint()">探测</button>
+    <div id="f1-log" class="log-box"></div>
   </div>
-  <div id="res-f1" class="log-area"></div>
 
   <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">F-2 · MDM 证书固定检测</div>
-      <div class="test-desc">检查 MDM 是否使用证书固定（防 MITM）</div>
+    <div class="test-row">
+      <div class="test-info">
+        <div class="test-name">F-2 · Proxyman 代理配置说明</div>
+        <div class="test-desc">手动配置代理后拦截 MDM 流量检测证书固定</div>
+      </div>
+      <button class="btn btn-warn" onclick="showProxyGuide()">查看指引</button>
     </div>
-    <button class="btn btn-warn" onclick="checkCertPinning()">检测</button>
-  </div>
-  <div id="res-f2" class="log-area"></div>
-</div>
-
-<!-- 测试 G：AirDrop / Share -->
-<div class="section">
-  <div class="section-title">攻击面 G · AirDrop / 分享扩展</div>
-
-  <div class="test-item">
-    <div class="test-info">
-      <div class="test-name">G-1 · AirDrop 接收状态</div>
-      <div class="test-desc">手动检查：控制中心 → AirDrop 是否开启</div>
-    </div>
-    <div class="result-bar info show" style="margin:0;padding:0 16px 12px;">
-      AirDrop 开启 = 可传输文件（.mobileconfig 无法直接安装，但可入 Files）<br>
-      AirDrop 关闭/仅联系人 = MDM 已限制（allowAirDrop 配置正确）
-    </div>
+    <div id="f2-guide" class="log-box"></div>
   </div>
 </div>
 
-<!-- 测试结果汇总 -->
-<div class="summary" id="summary">
+<!-- ═══════════════════════════════════════════════════
+     汇总
+  ═══════════════════════════════════════════════════ -->
+<div class="summary">
   <div class="summary-title">📊 测试结果汇总</div>
-  <div class="summary-row"><span>A. 描述文件安装</span><span class="status-badge badge-pending" id="sum-a">待测试</span></div>
-  <div class="summary-row"><span>B. OTA 安装通道</span><span class="status-badge badge-pending" id="sum-b">待测试</span></div>
-  <div class="summary-row"><span>C. 开发者模式</span><span class="status-badge badge-pending" id="sum-c">待测试</span></div>
-  <div class="summary-row"><span>D. URL Scheme</span><span class="status-badge badge-pending" id="sum-d">待测试</span></div>
-  <div class="summary-row"><span>E. NFC / QR</span><span class="status-badge badge-pending" id="sum-e">待测试</span></div>
-  <div class="summary-row"><span>F. 网络层</span><span class="status-badge badge-pending" id="sum-f">待测试</span></div>
-  <div class="summary-row"><span>G. AirDrop</span><span class="status-badge badge-pending" id="sum-g">待测试</span></div>
-  <br>
-  <button class="btn btn-primary" onclick="exportReport()" style="width:100%;padding:12px;">导出安全测试报告</button>
+  <div class="sum-row"><span>A-1. 描述文件安装</span><span class="badge badge-pending" id="sum-a">待测试</span></div>
+  <div class="sum-row"><span>A-2. CA 证书注入</span><span class="badge badge-pending" id="sum-a2">待测试</span></div>
+  <div class="sum-row"><span>A-3. 限制策略覆盖</span><span class="badge badge-pending" id="sum-a3">待测试</span></div>
+  <div class="sum-row"><span>B-1. OTA itms-services</span><span class="badge badge-safe">✅ 已封堵</span></div>
+  <div class="sum-row"><span>B-2. Safari 下载 IPA</span><span class="badge badge-vuln">⚠️ 可下载</span></div>
+  <div class="sum-row"><span>B-3. Files App 安装 IPA</span><span class="badge badge-pending" id="sum-b3">待测试</span></div>
+  <div class="sum-row"><span>C-1. 开发者模式</span><span class="badge badge-pending" id="sum-c">待测试</span></div>
+  <div class="sum-row"><span>D-1. URL Scheme 可用性</span><span class="badge badge-pending" id="sum-d">待测试</span></div>
+  <div class="sum-row"><span>D-2. TestFlight 协议</span><span class="badge badge-safe">✅ 未安装</span></div>
+  <div class="sum-row"><span>E-1. QR 触发 Profile</span><span class="badge badge-pending" id="sum-e">待测试</span></div>
+  <div class="sum-row"><span>F-1. 网络探测</span><span class="badge badge-pending" id="sum-f">待测试</span></div>
+  <button class="btn btn-primary export-btn" onclick="exportReport()">📄 导出完整安全报告</button>
 </div>
 
 <script>
-// ── 测试 B1：OTA 安装 ────────────────────────────────────────
-function testOTA() {
+// ── 工具 ──────────────────────────────────────────────────────
+function log(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('show');
+  el.innerHTML += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog(id) {
+  const el = document.getElementById(id);
+  if (el) { el.innerHTML = ''; el.classList.add('show'); }
+}
+function markResult(id, type, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'badge';
+  if (type === 'vuln') el.classList.add('badge-vuln');
+  else if (type === 'safe') el.classList.add('badge-safe');
+  else el.classList.add('badge-info');
+  el.textContent = text;
+}
+
+// ── mond IPA 操作 ─────────────────────────────────────────────
+function tryOTAInstall() {
   const manifestURL = encodeURIComponent(new URL('ota/manifest.plist', window.location.href).href);
   const url = 'itms-services://?action=download-manifest&url=' + manifestURL;
-  log('res-b1-log', '[B-1] 发起 itms-services:// 请求: ' + url);
-  
-  // 记录尝试时间
-  const start = Date.now();
+  log('ipa-log', '[OTA] 尝试: ' + url);
+  log('ipa-log', '[OTA] 若 B-1 已封堵则此操作同样失败（预期）');
+  setTimeout(() => { window.location.href = url; }, 300);
+}
+function showIPAHelp() {
+  clearLog('ipa-log');
+  log('ipa-log', '=== mond IPA 安装说明 ===');
+  log('ipa-log', '');
+  log('ipa-log', '方法 1：TrollStore（推荐）');
+  log('ipa-log', '  → 如果设备支持 TrollStore，直接用 TrollStore 安装 IPA');
+  log('ipa-log', '  → 完全绕过 MDM allowAppInstallation 限制');
+  log('ipa-log', '');
+  log('ipa-log', '方法 2：Xcode 无线安装');
+  log('ipa-log', '  → 设置 → 隐私与安全性 → 开发者模式（若可用）');
+  log('ipa-log', '  → Mac Xcode → Window → Devices → 安装 App');
+  log('ipa-log', '');
+  log('ipa-log', '方法 3：管理员 MDM 推送');
+  log('ipa-log', '  → 以管理员身份通过 MDM 控制台推送 InstallApplication');
+  log('ipa-log', '  → 此方法绕过所有用户级安装限制');
+  log('ipa-log', '');
+  log('ipa-log', '方法 4：A-1 通过后的完整利用链');
+  log('ipa-log', '  A-1 弹出 → 安装含 CA 的 Profile → CA 信任');
+  log('ipa-log', '  → 重签 mond IPA → OTA 安装 → 运行 bad_query');
+}
+
+// ── B-1 重测 ──────────────────────────────────────────────────
+function testOTA_b1() {
+  clearLog('b1-log');
+  const manifestURL = encodeURIComponent(new URL('ota/manifest.plist', window.location.href).href);
+  const url = 'itms-services://?action=download-manifest&url=' + manifestURL;
+  log('b1-log', '[B-1] URL: ' + url);
+  log('b1-log', '[B-1] 跳转中...');
+  const t = Date.now();
   window.location.href = url;
-  
-  // 延迟检测（如果还在此页面说明被拦截）
   setTimeout(() => {
-    const elapsed = Date.now() - start;
-    if (elapsed < 3000) {
-      log('res-b1-log', '[B-1] ⚠️ 可能被拦截（页面未跳转）');
-      markResult('sum-b', 'safe', '已封堵');
+    const elapsed = Date.now() - t;
+    if (elapsed < 2000) {
+      log('b1-log', '[B-1] ✅ 停留在此页面 → 协议被拦截（已封堵）');
+      markResult('sum-b1', 'safe', '✅ 已封堵');
     }
-  }, 2500);
-  
-  document.getElementById('res-b1').style.display = 'none';
-  showLog('res-b1-log');
+  }, 2000);
 }
 
-// ── 测试 D1：URL Schemes ─────────────────────────────────────
-function testURLSchemes() {
-  const schemes = [
-    { url: 'itms://', name: 'App Store (itms)' },
-    { url: 'itms-apps://', name: 'App Store (itms-apps)' },
-    { url: 'itms-beta://', name: 'TestFlight (itms-beta)' },
-    { url: 'itms-services://', name: 'OTA (itms-services)' },
-    { url: 'developer://', name: 'Xcode Developer' },
-    { url: 'com.apple.configurator.be://', name: 'Apple Configurator' },
-  ];
-
-  const logEl = document.getElementById('res-d1');
-  logEl.style.display = 'block';
-  logEl.innerHTML = '';
-
-  schemes.forEach((s, i) => {
-    setTimeout(() => {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = s.url;
-      document.body.appendChild(iframe);
-      
-      setTimeout(() => {
-        log('res-d1', `[D-1] 测试 ${s.name}: ${s.url} → 请观察设备响应`);
-        document.body.removeChild(iframe);
-      }, 100);
-    }, i * 800);
-  });
+// ── B-3 指引 ──────────────────────────────────────────────────
+function showB3Guide() {
+  const el = document.getElementById('b3-guide');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-// ── 测试 C2：Xcode 无线连接 ──────────────────────────────────
-function testXcodeWireless() {
-  const logEl = document.getElementById('res-c2');
-  logEl.style.display = 'block';
-  
-  const deviceInfo = {
+// ── C-1 设备信息 ──────────────────────────────────────────────
+function showC1Info() {
+  clearLog('c1-info');
+  const ua = navigator.userAgent;
+  const iosMatch = ua.match(/OS (\d+)[_.](\d+)/);
+  const isIOS = /iPhone|iPad|iPod/.test(ua);
+  log('c1-info', '[C-1] 设备检测结果:');
+  log('c1-info', '  iOS 设备: ' + isIOS);
+  if (iosMatch) log('c1-info', '  iOS 版本: ' + iosMatch[1] + '.' + iosMatch[2]);
+  log('c1-info', '  User-Agent: ' + ua.substring(0, 80) + '...');
+  log('c1-info', '');
+  log('c1-info', '[C-1] 手动检查路径:');
+  log('c1-info', '  设置 → 隐私与安全性 → 开发者模式');
+  log('c1-info', '');
+  log('c1-info', '  ✓ 可点击 → forceDeveloperModeOff 未配置 [漏洞]');
+  log('c1-info', '  ✗ 灰色/不存在 → MDM 已通过 forceDeveloperModeOff=true 限制');
+  log('c1-info', '');
+  log('c1-info', '[C-1] 若开发者模式可启用:');
+  log('c1-info', '  → 可通过 Xcode 无线连接安装 App（绕过 App Store）');
+}
+
+function collectDeviceInfo() {
+  clearLog('c2-log');
+  const info = {
     userAgent: navigator.userAgent,
-    platform: navigator.platform,
     language: navigator.language,
     cookieEnabled: navigator.cookieEnabled,
     onLine: navigator.onLine,
     hardwareConcurrency: navigator.hardwareConcurrency,
-    deviceMemory: navigator.deviceMemory || 'unknown',
-    connection: navigator.connection ? navigator.connection.effectiveType : 'unknown',
+    deviceMemory: navigator.deviceMemory || 'N/A',
+    platform: navigator.platform,
+    connection: navigator.connection ? navigator.connection.effectiveType : 'N/A',
+    screen: screen.width + 'x' + screen.height,
+    pixelRatio: window.devicePixelRatio,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
-  
-  log('res-c2', '[C-2] 设备信息采集：');
-  Object.entries(deviceInfo).forEach(([k, v]) => {
-    log('res-c2', `  ${k}: ${v}`);
+  log('c2-log', '[C-2] 设备信息:');
+  Object.entries(info).forEach(([k, v]) => log('c2-log', `  ${k}: ${v}`));
+}
+
+// ── D-1 URL Scheme 测试 ───────────────────────────────────────
+const SCHEMES = [
+  { url: 'itms://', name: 'App Store (itms)' },
+  { url: 'itms-apps://', name: 'App Store (itms-apps)' },
+  { url: 'itms-services://', name: 'OTA (itms-services)' },
+  { url: 'developer://', name: 'Xcode Developer' },
+  { url: 'prefs:root=Privacy&path=DEVELOPER_MODE', name: '开发者模式设置' },
+  { url: 'prefs:root=General&path=ManagedConfigurationList', name: 'MDM Profile 列表' },
+  { url: 'com-apple-configurator-be://', name: 'Apple Configurator' },
+  { url: 'x-apple-find-me-message://', name: 'Find My' },
+];
+function runSchemeTests() {
+  clearLog('d1-log');
+  const btns = document.getElementById('d1-btns');
+  btns.style.display = 'flex';
+  btns.innerHTML = '';
+  log('d1-log', '[D-1] 逐项测试，点击各按钮跳转，若成功跳转请回本页记录结果:');
+  SCHEMES.forEach((s, i) => {
+    const btn = document.createElement('a');
+    btn.href = s.url;
+    btn.className = 'btn btn-primary';
+    btn.style = 'font-size:12px;padding:5px 10px;';
+    btn.textContent = s.name;
+    btn.onclick = () => {
+      log('d1-log', `[D-1] 测试 ${i+1}: ${s.name} → ${s.url}`);
+      markResult('sum-d', 'info', '测试中...');
+    };
+    btns.appendChild(btn);
   });
-  
-  // 检测是否为 iOS
-  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-  log('res-c2', `[C-2] 识别为 iOS 设备: ${isIOS}`);
-  
-  if (isIOS) {
-    // 尝试读取 iOS 版本
-    const match = navigator.userAgent.match(/OS (\d+)_(\d+)/);
-    if (match) {
-      log('res-c2', `[C-2] iOS 版本: ${match[1]}.${match[2]}`);
-      log('res-c2', `[C-2] 开发者模式检查路径: 设置→隐私与安全性→开发者模式`);
-    }
-  }
-  
-  markResult('sum-c', 'pending', '需手动确认');
+  // prefs: 特殊处理
+  const prefsBtn = document.createElement('button');
+  prefsBtn.className = 'btn btn-warn';
+  prefsBtn.style = 'font-size:12px;padding:5px 10px;';
+  prefsBtn.textContent = '跳转 MDM 设置';
+  prefsBtn.onclick = () => {
+    window.location.href = 'prefs:root=General&path=ManagedConfigurationList';
+    log('d1-log', '[D-1] 尝试跳转 MDM 描述文件列表');
+  };
+  btns.appendChild(prefsBtn);
 }
 
-// ── 测试 F1：MDM 端点探测 ────────────────────────────────────
-function probeMDMEndpoint() {
-  const logEl = document.getElementById('res-f1');
-  logEl.style.display = 'block';
-  
-  log('res-f1', '[F-1] 开始 MDM 端点探测...');
-  log('res-f1', '[F-1] 方法：分析网络请求特征');
-  
-  // 探测常见 MDM 服务商端点
-  const mdmEndpoints = [
-    'https://mdm.jamfcloud.com',
-    'https://mdm.mosyle.net',
-    'https://mdm.kandji.io',
-    'https://mdmenroll.microsoft.com',
-    'https://mdm.google.com',
-  ];
-  
-  log('res-f1', '[F-1] 注意：MDM 服务器地址通常存储在：');
-  log('res-f1', '  /private/var/containers/Shared/SystemGroup/');
-  log('res-f1', '  systemgroup.com.apple.configurationprofiles/');
-  log('res-f1', '  Library/ConfigurationProfiles/CloudConfigurationDetails.plist');
-  log('res-f1', '[F-1] → bad_query 成功后可直接读取此文件获得 MDM 服务器信息');
-  
-  markResult('sum-f', 'pending', '需配合 mond');
-}
-
-// ── 测试 F2：证书固定检测 ────────────────────────────────────
-function checkCertPinning() {
-  const logEl = document.getElementById('res-f2');
-  logEl.style.display = 'block';
-  
-  log('res-f2', '[F-2] MDM 通信安全检测...');
-  log('res-f2', '[F-2] MDM 协议使用 HTTPS + mTLS（双向 TLS）');
-  log('res-f2', '[F-2] 客户端证书在设备注册时由 MDM 颁发');
-  log('res-f2', '[F-2] 证书固定检测需要：');
-  log('res-f2', '  1. 配置 HTTP 代理（如 Proxyman）');
-  log('res-f2', '  2. 安装代理 CA 证书到设备');
-  log('res-f2', '  3. 观察 MDM CheckIn 请求是否通过代理');
-  log('res-f2', '[F-2] → 若 MDM 使用证书固定，代理将收到 SSL 错误');
-  log('res-f2', '[F-2] → 若无固定，可拦截 MDM 指令（MITM 漏洞）');
-}
-
-// ── QR Code 生成 ──────────────────────────────────────────────
+// ── E-1 QR Code ───────────────────────────────────────────────
 function generateQR() {
   const url = new URL('profiles/test-a1-basic.mobileconfig', window.location.href).href;
-  const container = document.getElementById('qr-container');
-  container.style.display = 'block';
-  
-  // 简单 QR 码提示（完整实现需引入 qrcode.js）
+  const wrap = document.getElementById('qr-wrap');
+  wrap.style.display = 'block';
+  document.getElementById('qr-url-text').textContent = url;
   const canvas = document.getElementById('qr-canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = 200;
-  canvas.height = 200;
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, 200, 200);
-  ctx.fillStyle = '#000';
-  ctx.font = '10px monospace';
-  ctx.fillText('QR: ' + url.substring(0, 30) + '...', 10, 100);
-  ctx.fillText('（需引入 qrcode.js 库）', 10, 120);
-  
-  log('qr-hint', '[E-1] QR 目标 URL: ' + url);
+  QRCode.toCanvas(canvas, url, { width: 220, margin: 2, color: { dark: '#000', light: '#fff' } }, (err) => {
+    if (err) {
+      wrap.innerHTML = '<p style="color:#ff3b30">QR 生成失败: ' + err.message + '</p>';
+    } else {
+      markResult('sum-e', 'info', '已生成，待扫描');
+    }
+  });
 }
 
-function showNFCGuide() {
-  alert('NFC 测试步骤：\n1. 用 NFC Tools 等应用写入 NDEF 记录\n2. 类型选 URL，值填写 Profile 地址\n3. 靠近设备 → 观察是否触发安装对话框\n\n攻击场景：在公共场所放置含恶意 Profile URL 的 NFC 标签');
-}
-
-function showDevModeGuide() {
-  alert('开发者模式检查路径（iOS 16+）：\n\n设置 → 隐私与安全性 → 开发者模式\n\n✅ 可以点击 = forceDeveloperModeOff 未配置（存在漏洞）\n❌ 灰色不可点 = MDM 已通过 forceDeveloperModeOff 限制\n❌ 入口不存在 = 完全隐藏');
-}
-
-// ── 工具函数 ──────────────────────────────────────────────────
-function log(id, msg) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.innerHTML += msg + '\n';
-    el.scrollTop = el.scrollHeight;
+// ── F-1 网络探测 ──────────────────────────────────────────────
+async function probeNetwork() {
+  clearLog('f1-log');
+  log('f1-log', '[F-1] 开始探测...');
+  const endpoints = [
+    { url: 'https://www.apple.com/apple-pay/static/js/bootstrap.js', name: 'Apple CDN' },
+    { url: 'https://api.github.com', name: 'GitHub API' },
+    { url: 'https://rugkeypro.github.io/mond/', name: '测试服务器（本站）' },
+  ];
+  for (const ep of endpoints) {
+    try {
+      const t = Date.now();
+      const res = await fetch(ep.url, { method: 'HEAD', mode: 'no-cors', cache: 'no-store' });
+      const ms = Date.now() - t;
+      log('f1-log', `  ✓ ${ep.name}: 可达 (${ms}ms)`);
+    } catch (e) {
+      log('f1-log', `  ✗ ${ep.name}: 不可达 (${e.message})`);
+    }
   }
+  log('f1-log', '[F-1] 注意：MDM 服务器地址只能通过 mond bad_query 读取');
+  log('f1-log', '  路径: /var/containers/Shared/SystemGroup/');
+  log('f1-log', '  systemgroup.com.apple.configurationprofiles/');
+  log('f1-log', '  Library/ConfigurationProfiles/CloudConfigurationDetails.plist');
+  markResult('sum-f', 'info', '已探测');
 }
 
-function showLog(id) {
-  const el = document.getElementById(id);
-  if (el) el.style.display = 'block';
-}
-
-function markResult(id, type, text) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.className = 'status-badge';
-  if (type === 'vuln') { el.classList.add('badge-vuln'); el.textContent = '⚠️ ' + text; }
-  else if (type === 'safe') { el.classList.add('badge-safe'); el.textContent = '✅ ' + text; }
-  else { el.classList.add('badge-pending'); el.textContent = text; }
+// ── F-2 代理指引 ──────────────────────────────────────────────
+function showProxyGuide() {
+  clearLog('f2-guide');
+  log('f2-guide', '[F-2] Proxyman 拦截 MDM 流量步骤:');
+  log('f2-guide', '');
+  log('f2-guide', '1. Mac 安装 Proxyman: https://proxyman.io');
+  log('f2-guide', '2. iPhone 设置代理: 设置→WiFi→HTTP代理→手动→输入 Mac IP:9090');
+  log('f2-guide', '3. 设备 Safari 访问 proxy.man/ssl → 安装 Proxyman CA 证书');
+  log('f2-guide', '4. 设置→通用→VPN与设备管理→证书信任设置→启用 Proxyman CA');
+  log('f2-guide', '');
+  log('f2-guide', '5. 在 Proxyman 中过滤域名包含 "apple.com" 的请求');
+  log('f2-guide', '6. 强制 MDM 检入: 设置→通用→VPN与设备管理→点击描述文件');
+  log('f2-guide', '7. 观察 Proxyman 是否捕获到 MDM CheckIn 请求');
+  log('f2-guide', '');
+  log('f2-guide', '结果判断:');
+  log('f2-guide', '  ✅ 请求被捕获 → MDM 无证书固定（MITM 漏洞）');
+  log('f2-guide', '  ❌ SSL 握手失败 → MDM 有证书固定（已防护）');
 }
 
 // ── 报告导出 ──────────────────────────────────────────────────
 function exportReport() {
+  const get = id => (document.getElementById(id) || {}).textContent || '待测试';
   const report = {
     title: 'MDM 黑盒安全测试报告',
-    device: navigator.userAgent,
-    timestamp: new Date().toISOString(),
-    tests: {
-      'A_profile_install': document.getElementById('sum-a').textContent,
-      'B_ota_install': document.getElementById('sum-b').textContent,
-      'C_developer_mode': document.getElementById('sum-c').textContent,
-      'D_url_scheme': document.getElementById('sum-d').textContent,
-      'E_nfc_qr': document.getElementById('sum-e').textContent,
-      'F_network': document.getElementById('sum-f').textContent,
-      'G_airdrop': document.getElementById('sum-g').textContent,
+    generated_at: new Date().toISOString(),
+    device: {
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      screen: screen.width + 'x' + screen.height,
     },
-    recommendation: [
-      'allowProfileInstallation = false',
-      'forceDeveloperModeOff = true',
-      'allowAirDrop = false',
-      'allowEnterpriseAppTrust = false',
-      'MDM 通信启用证书固定',
-    ]
+    findings: {
+      'A-1_profile_install':    get('sum-a'),
+      'A-2_ca_injection':       get('sum-a2'),
+      'A-3_restriction_bypass': get('sum-a3'),
+      'B-1_ota_itms':           '✅ 已封堵',
+      'B-2_safari_ipa_download':'⚠️ 可下载',
+      'B-3_files_app_install':  get('sum-b3'),
+      'C-1_developer_mode':     get('sum-c'),
+      'D-1_url_schemes':        get('sum-d'),
+      'D-2_testflight':         '✅ 未安装（MDM 限制）',
+      'E-1_qr_trigger':         get('sum-e'),
+      'F-1_network_probe':      get('sum-f'),
+    },
+    recommended_mdm_settings: {
+      'allowProfileInstallation':  false,
+      'forceDeveloperModeOff':     true,
+      'allowEnterpriseAppTrust':   false,
+      'allowAirDrop':              false,
+      'forceEncryptedBackup':      true,
+      'allowCloudDocumentSync':    false,
+    },
+    notes: 'B-2 发现 Safari 可下载 IPA 文件。若 A-1 通过（Profile 安装可用），则完整利用链为：安装 CA Profile → 信任企业证书 → OTA 安装 mond → 运行 bad_query → 沙盒逃逸 → 绕过 MDM。',
   };
-  
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
+  a.href = URL.createObjectURL(blob);
   a.download = 'mdm-security-report-' + Date.now() + '.json';
   a.click();
 }
-
-// 页面加载完成
-window.addEventListener('load', () => {
-  // 检测是否 iOS
-  if (/iPhone|iPad/.test(navigator.userAgent)) {
-    log('res-c2', '[初始化] iOS 设备检测完成，可开始测试');
-  }
-});
 </script>
-
 </body>
 </html>

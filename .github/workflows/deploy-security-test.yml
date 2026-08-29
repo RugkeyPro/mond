@@ -11,6 +11,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
   group: pages-deploy
@@ -28,6 +29,57 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: security/mdm-blackbox-test
+
+      # ── 获取最新 mond IPA ──────────────────────────────────
+      - name: 下载最新 mond IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p security-test/ota
+
+          echo "正在查找最新 mond IPA artifact..."
+
+          # 获取最新成功的 calc-unsigned-build workflow 运行
+          LATEST_RUN=$(gh api \
+            "repos/${REPO}/actions/workflows/calc-unsigned-build.yml/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].id' 2>/dev/null || echo "")
+
+          if [ -n "$LATEST_RUN" ] && [ "$LATEST_RUN" != "null" ]; then
+            echo "找到构建 Run ID: $LATEST_RUN"
+
+            # 获取 artifact 下载 URL
+            ARTIFACT_URL=$(gh api \
+              "repos/${REPO}/actions/runs/${LATEST_RUN}/artifacts" \
+              --jq '.artifacts[] | select(.name == "mond-calc-unsigned") | .archive_download_url' 2>/dev/null || echo "")
+
+            if [ -n "$ARTIFACT_URL" ]; then
+              echo "下载 IPA artifact..."
+              gh api "$ARTIFACT_URL" > /tmp/mond_artifact.zip 2>/dev/null || true
+
+              # 解压并找到 IPA
+              unzip -o /tmp/mond_artifact.zip -d /tmp/mond_extracted/ 2>/dev/null || true
+              IPA_FILE=$(find /tmp/mond_extracted -name "*.ipa" | head -1)
+
+              if [ -n "$IPA_FILE" ]; then
+                cp "$IPA_FILE" security-test/ota/mond_calc.ipa
+                IPA_SIZE=$(stat -c%s security-test/ota/mond_calc.ipa)
+                echo "✅ IPA 已就位: mond_calc.ipa (${IPA_SIZE} bytes)"
+              else
+                echo "⚠️ 未找到 .ipa 文件，使用占位文件"
+                echo "MOND-IPA-PLACEHOLDER-RUN-calc-unsigned-build-WORKFLOW-FIRST" > security-test/ota/mond_calc.ipa
+              fi
+            else
+              echo "⚠️ 未找到 artifact URL，使用占位文件"
+              echo "MOND-IPA-PLACEHOLDER-NO-ARTIFACT" > security-test/ota/mond_calc.ipa
+            fi
+          else
+            echo "⚠️ 未找到成功的构建记录，使用占位文件"
+            echo "MOND-IPA-PLACEHOLDER-NO-BUILD" > security-test/ota/mond_calc.ipa
+            echo ""
+            echo "  请先运行 calc-unsigned-build 工作流："
+            echo "  Actions → Build Unsigned Calculator IPA → Run workflow"
+          fi
 
       # 生成测试 CA（用于 A-2 测试）
       - name: 生成测试 CA 证书
@@ -67,10 +119,10 @@ jobs:
           ca_der = ca_cert.public_bytes(serialization.Encoding.DER)
           ca_b64 = base64.b64encode(ca_der).decode()
 
-          # 更新 mobileconfig
+          # 更新 mobileconfig（匹配新的占位符）
           with open("profiles/test-a2-ca.mobileconfig", "r") as f:
               content = f.read()
-          content = content.replace("PLACEHOLDER_REPLACE_WITH_YOUR_TEST_CA_BASE64", ca_b64)
+          content = content.replace("__CA_CERT_BASE64_PLACEHOLDER__", ca_b64)
           with open("profiles/test-a2-ca.mobileconfig", "w") as f:
               f.write(content)
 
