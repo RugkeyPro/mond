@@ -112,6 +112,7 @@ jobs:
         env:
           GITHUB_PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/security-test
         run: |
+          mkdir -p security-test/ota
           cat > security-test/ota/manifest.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
