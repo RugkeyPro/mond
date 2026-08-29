@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - security/mdm-blackbox-test
+      - main
   workflow_dispatch:
 
 permissions:
