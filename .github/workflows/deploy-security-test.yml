@@ -110,7 +110,7 @@ jobs:
       # 生成 OTA manifest（占位，实际 IPA 需要真实签名）
       - name: 生成 OTA 测试 manifest
         env:
-          GITHUB_PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/security-test
+          GITHUB_PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: |
           mkdir -p security-test/ota
           cat > security-test/ota/manifest.plist << EOF
@@ -156,7 +156,7 @@ jobs:
       # 更新测试面板中的实际 URL
       - name: 注入 GitHub Pages URL 到测试面板
         env:
-          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/security-test
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
           REPO_NAME: ${{ github.repository }}
         run: |
           # 更新 index.html 中的服务器 URL 占位符

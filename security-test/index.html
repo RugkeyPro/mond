@@ -232,7 +232,7 @@ h1 { font-size: 20px; margin-bottom: 4px; }
 <script>
 // ── 测试 B1：OTA 安装 ────────────────────────────────────────
 function testOTA() {
-  const manifestURL = encodeURIComponent(location.origin + '/ota/manifest.plist');
+  const manifestURL = encodeURIComponent(new URL('ota/manifest.plist', window.location.href).href);
   const url = 'itms-services://?action=download-manifest&url=' + manifestURL;
   log('res-b1-log', '[B-1] 发起 itms-services:// 请求: ' + url);
   
@@ -364,7 +364,7 @@ function checkCertPinning() {
 
 // ── QR Code 生成 ──────────────────────────────────────────────
 function generateQR() {
-  const url = location.origin + '/profiles/test-a1-basic.mobileconfig';
+  const url = new URL('profiles/test-a1-basic.mobileconfig', window.location.href).href;
   const container = document.getElementById('qr-container');
   container.style.display = 'block';
   
