@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  测试 A-2：自定义 CA 根证书注入
+  用途：测试是否能将自签 CA 加入设备信任链
+  原理：若成功，可用此 CA 签发企业证书，进而安装企业签名 App
+  内容：自生成的测试 CA 证书（不能用于任何实际 TLS 场景）
+  判断：
+    - 弹出「安装证书」对话框 = 可注入自定义 CA → 企业签名通道可利用
+    - 被拦截 = allowProfileInstallation 或证书策略已限制
+-->
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <!-- 
+        这是一个自签名测试 CA 的 DER 编码（Base64）
+        生成命令（参考）：
+          openssl genrsa -out test-ca.key 2048
+          openssl req -new -x509 -key test-ca.key -out test-ca.crt -days 30 \
+            -subj "/CN=MDM Security Test CA/O=Security Research/C=CN"
+          openssl x509 -in test-ca.crt -outform DER | base64
+        
+        下方证书仅为占位符结构，请替换为你实际生成的证书 Base64
+      -->
+      <key>PayloadCertificateFileName</key>
+      <string>security-test-ca.crt</string>
+      <key>PayloadContent</key>
+      <data>
+        <!-- 
+          在此处替换为你的测试 CA DER Base64
+          示例格式（非真实证书）：
+          MIICpDCCAYwCCQDxxxxxxxxxxxxxxx...
+          
+          生成步骤：
+          1. 在 Mac/Linux 执行上方 openssl 命令
+          2. 将生成的 test-ca.crt DER Base64 替换此处
+        -->
+        PLACEHOLDER_REPLACE_WITH_YOUR_TEST_CA_BASE64
+      </data>
+      <key>PayloadDescription</key>
+      <string>MDM Security Test - CA Certificate Injection Test</string>
+      <key>PayloadDisplayName</key>
+      <string>安全测试 CA 证书</string>
+      <key>PayloadIdentifier</key>
+      <string>com.security.test.ca.certificate</string>
+      <key>PayloadType</key>
+      <string>com.apple.security.root</string>
+      <key>PayloadUUID</key>
+      <string>AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>MDM 安全测试 A-2：CA 证书注入探针（安全研究用途）</string>
+  <key>PayloadDisplayName</key>
+  <string>【安全测试 A-2】CA 证书注入探针</string>
+  <key>PayloadIdentifier</key>
+  <string>com.security.test.a2.ca-injection</string>
+  <key>PayloadOrganization</key>
+  <string>MDM Security Research</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>22222222-3333-4444-5555-666666666666</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>

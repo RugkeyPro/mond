@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  测试 A-1：最小化描述文件
+  用途：仅测试系统是否允许弹出「安装描述文件」对话框
+  内容：无害的 WiFi 配置（不会实际连接，因为密码是假的）
+  判断：能弹对话框 = allowProfileInstallation 未限制 = 漏洞存在
+-->
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>AutoJoin</key>
+      <false/>
+      <key>EAPClientConfiguration</key>
+      <dict/>
+      <key>EncryptionType</key>
+      <string>WPA2</string>
+      <key>HIDDEN_NETWORK</key>
+      <false/>
+      <key>Password</key>
+      <string>SECURITY-TEST-PROBE-DO-NOT-CONNECT</string>
+      <key>PayloadDescription</key>
+      <string>MDM Security Test - WiFi Probe (Harmless)</string>
+      <key>PayloadDisplayName</key>
+      <string>安全测试 WiFi 探针</string>
+      <key>PayloadIdentifier</key>
+      <string>com.security.test.wifi.probe</string>
+      <key>PayloadType</key>
+      <string>com.apple.wifi.managed</string>
+      <key>PayloadUUID</key>
+      <string>A1B2C3D4-E5F6-7890-ABCD-EF1234567890</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>ProxyType</key>
+      <string>None</string>
+      <key>SSID_STR</key>
+      <string>MDM-SECURITY-TEST-PROBE</string>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>MDM 安全测试 - 测试描述文件安装是否被限制（仅供安全研究，内容无害）</string>
+  <key>PayloadDisplayName</key>
+  <string>【安全测试 A-1】描述文件安装探针</string>
+  <key>PayloadIdentifier</key>
+  <string>com.security.test.a1.profile-install</string>
+  <key>PayloadOrganization</key>
+  <string>MDM Security Research</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>11111111-2222-3333-4444-555555555555</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>
