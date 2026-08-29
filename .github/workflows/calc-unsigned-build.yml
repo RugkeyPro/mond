@@ -1,0 +1,262 @@
+name: 计算器伪装版 - 无签名 IPA (无需开发者账号)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 触发：push 到 disguise/calculator 分支，或手动触发
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - disguise/calculator
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: calc-unsigned-build
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 不需要任何 Secrets！无需 Apple 开发者账号。
+# 产出：无签名 IPA（附 no-sandbox entitlements，适用于 TrollStore）
+# ─────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      # ── 1. 检出 disguise/calculator 分支 ─────────────────────────────────
+      - name: Checkout disguise/calculator
+        uses: actions/checkout@v4
+        with:
+          ref: disguise/calculator
+
+      # ── 2. 将显示名称改为「计算器」──────────────────────────────────────
+      - name: 设置显示名称为「计算器」
+        run: |
+          set -euo pipefail
+          PBXPROJ="mond.xcodeproj/project.pbxproj"
+
+          # 方法一：注入 INFOPLIST_KEY_CFBundleDisplayName（Xcode 13+）
+          if grep -q "INFOPLIST_KEY_CFBundleDisplayName" "$PBXPROJ"; then
+            sed -i '' \
+              's|INFOPLIST_KEY_CFBundleDisplayName = .*|INFOPLIST_KEY_CFBundleDisplayName = "计算器";|g' \
+              "$PBXPROJ"
+          else
+            # 方法二：在 INFOPLIST_FILE 附近插入（兼容旧 pbxproj 格式）
+            # 找到 Release 配置块并插入
+            python3 - <<'PYEOF'
+          import re, sys
+
+          with open("mond.xcodeproj/project.pbxproj", "r", encoding="utf-8") as f:
+              content = f.read()
+
+          # 在 PRODUCT_NAME = mond; 后面追加（避免重复添加）
+          if "计算器" not in content:
+              content = content.replace(
+                  'PRODUCT_NAME = mond;',
+                  'PRODUCT_NAME = mond;\n\t\t\t\tINFOPLIST_KEY_CFBundleDisplayName = "计算器";'
+              )
+              with open("mond.xcodeproj/project.pbxproj", "w", encoding="utf-8") as f:
+                  f.write(content)
+              print("✅ 已注入 INFOPLIST_KEY_CFBundleDisplayName")
+          else:
+              print("ℹ️  显示名称已存在，跳过")
+          PYEOF
+          fi
+
+          echo "── pbxproj 中的显示名称相关行 ──"
+          grep -i "displayname\|CFBundleDisplayName\|PRODUCT_NAME" "$PBXPROJ" | head -10 || true
+
+      # ── 3. xcodebuild（无签名）────────────────────────────────────────────
+      - name: xcodebuild（无签名 Release 构建）
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+
+          xcodebuild \
+            -project mond.xcodeproj \
+            -scheme mond \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            build 2>&1 | tee build.log
+
+          PRODUCTS="build/Build/Products/Release-iphoneos"
+          APP_PATH="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH" && test -d "$APP_PATH"
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "✅ 构建成功: $APP_PATH"
+
+      # ── 4. 嵌入 BAExtension ──────────────────────────────────────────────
+      - name: 嵌入 BAExtension.appex
+        run: |
+          set -euo pipefail
+          PRODUCTS="build/Build/Products/Release-iphoneos"
+          APPEX_PATH="$(find "$PRODUCTS" -maxdepth 1 -name 'BAExtension.appex' -print -quit)"
+
+          if [ -n "$APPEX_PATH" ] && [ ! -d "$APP_PATH/PlugIns/BAExtension.appex" ]; then
+            echo ":: 手动嵌入 BAExtension.appex"
+            mkdir -p "$APP_PATH/PlugIns"
+            cp -R "$APPEX_PATH" "$APP_PATH/PlugIns/"
+          fi
+
+          # 修复 NSExtensionPrincipalClass
+          APPEX_PLIST="$APP_PATH/PlugIns/BAExtension.appex/Info.plist"
+          if [ -f "$APPEX_PLIST" ]; then
+            /usr/libexec/PlistBuddy -c \
+              "Delete :NSExtension:NSExtensionPrincipalClass" \
+              "$APPEX_PLIST" 2>/dev/null || true
+            echo "✅ BAExtension 已修复"
+          fi
+
+          # 注入 UIBackgroundModes
+          PLIST="$APP_PATH/Info.plist"
+          if ! /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" 2>/dev/null; then
+            /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string background-download" "$PLIST"
+          fi
+
+      # ── 5. Ad-hoc 签名（附 no-sandbox entitlements）─────────────────────
+      #    说明：这是让 TrollStore 可以安装的关键
+      #    TrollStore 通过 CoreTrust 漏洞绕过签名验证，配合 no-sandbox
+      #    entitlements 让 App 在安装后获得沙盒逃逸能力。
+      - name: Ad-hoc 签名（no-sandbox entitlements）
+        run: |
+          set -euo pipefail
+
+          cat > entitlements.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <!-- 核心沙盒逃逸 entitlement（TrollStore 模式下生效） -->
+            <key>com.apple.private.security.no-sandbox</key>
+            <true/>
+            <!-- 平台 App 权限（访问系统 API） -->
+            <key>platform-application</key>
+            <true/>
+            <!-- 跳过库验证（加载私有框架） -->
+            <key>com.apple.private.skip-library-validation</key>
+            <true/>
+            <!-- 沙盒扩展相关（bad_query 所需） -->
+            <key>com.apple.private.security.sandbox-container</key>
+            <string>mond</string>
+          </dict>
+          </plist>
+          EOF
+
+          codesign --force --deep --sign - \
+            --entitlements entitlements.plist \
+            "$APP_PATH"
+
+          cp entitlements.plist "$APP_PATH/entitlements.plist"
+          echo "✅ Ad-hoc 签名完成（附 no-sandbox）"
+
+      # ── 6. 打包 IPA ──────────────────────────────────────────────────────
+      - name: 打包 IPA
+        run: |
+          set -euo pipefail
+          rm -rf Payload mond_calc.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+
+          # 验证 App 名称
+          APP_DISPLAY="$(/usr/libexec/PlistBuddy -c \
+            'Print :CFBundleDisplayName' "$APP_PATH/Info.plist" 2>/dev/null \
+            || echo 'mond')"
+          echo ":: App 显示名称: $APP_DISPLAY"
+
+          ditto -c -k --keepParent Payload mond_calc.ipa
+          rm -rf Payload
+          shasum -a 256 mond_calc.ipa | tee mond_calc.ipa.sha256
+          echo "✅ IPA 打包完成: mond_calc.ipa"
+
+      # ── 7. 验证 IPA ──────────────────────────────────────────────────────
+      - name: 验证 IPA 完整性
+        run: |
+          set -euo pipefail
+          unzip -t mond_calc.ipa
+          unzip -Z1 mond_calc.ipa | grep -Eq '^Payload/[^/]+\.app/[^/]+$'
+
+          if ! unzip -Z1 mond_calc.ipa | grep -q 'PlugIns/BAExtension.appex/'; then
+            echo "::error::BAExtension.appex 未嵌入！"
+            exit 1
+          fi
+          echo "✅ IPA 验证通过，BAExtension 已嵌入"
+
+      # ── 8. 上传 GitHub Artifacts ─────────────────────────────────────────
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: mond-calculator-disguise-unsigned
+          path: |
+            mond_calc.ipa
+            mond_calc.ipa.sha256
+            entitlements.plist
+          if-no-files-found: error
+
+      # ── 9. 发布到 GitHub Release ─────────────────────────────────────────
+      - name: 发布到 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="calc-disguise-unsigned"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" \
+            mond_calc.ipa \
+            mond_calc.ipa.sha256 \
+            entitlements.plist \
+            --target "${GITHUB_SHA}" \
+            --title "计算器伪装版 (无签名 IPA)" \
+            --notes "## 计算器伪装版 mond
+
+          **分支**: \`disguise/calculator\` | **Commit**: \`${GITHUB_SHA}\`
+
+          ---
+
+          ### 📲 安装方式
+
+          #### 方式一：TrollStore（推荐，无需开发者账号）
+          > 适用于支持 TrollStore 的设备（部分 iOS 14-17 设备）
+          1. 下载 \`mond_calc.ipa\`
+          2. 通过 AirDrop / iCloud / USB 传输到设备
+          3. 在 **TrollStore** 中打开并安装
+          4. TrollStore 使用 CoreTrust 绕过签名限制，**不受 MDM allowAppInstallation 影响**
+
+          #### 方式二：自签名（AltStore / Sideloadly）
+          > 需要每 7 天重新签名（免费 Apple ID）
+          1. 使用 AltStore 或 Sideloadly 安装
+          2. 在「设置 → 通用 → VPN 与设备管理」信任证书
+
+          #### 方式三：如果 MDM 拦截了安装
+          > 先绕过 MDM，再安装
+          \`\`\`bash
+          pip install pymobiledevice3
+          python scripts/mdm_bypass_pc_v2.py neuter   # USB 连接后执行
+          # 重启设备后，MDM 限制解除，再安装 App
+          \`\`\`
+
+          ---
+
+          ### 🔐 使用方法
+          1. 打开 App → 外观与系统计算器完全相同
+          2. 输入 \`102\` 后按 \`=\` → 进入真实 mond 界面
+          3. 按左上角 ↓ 返回计算器
+
+          ---
+
+          ### ⚠️ 重要说明
+          - 此为**无签名 IPA**，需要 TrollStore、AltStore 等工具安装
+          - TestFlight 分发需要 Apple 开发者账号（\$99/年），本构建不包含
+          - 如果设备受 MDM 管控且封锁了所有安装方式，请使用 \`mdm_bypass_pc_v2.py\` PC 端脚本
+          "
