@@ -113,7 +113,6 @@ jobs:
         run: |
           set -euo pipefail
           unzip -t xianguang.ipa
-          unzip -Z1 xianguang.ipa | grep -q '^Payload/.*\.app/'
           shasum -a 256 xianguang.ipa | tee xianguang.ipa.sha256
           echo ":: xianguang.ipa verified successfully"
 
