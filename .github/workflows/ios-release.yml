@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - master
+    paths-ignore:
+      - '授权计算器-merged(1).zip'
+      - '.github/workflows/build-xianguang.yml'
   workflow_dispatch:
 
 permissions:

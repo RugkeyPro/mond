@@ -1,0 +1,142 @@
+name: build and release xianguang
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '授权计算器-merged(1).zip'
+      - '.github/workflows/build-xianguang.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xianguang-release-latest
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: extract zip
+        run: |
+          set -euo pipefail
+          ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*.zip' -print -quit)"
+          if [ -z "$ZIP_FILE" ] || [ ! -f "$ZIP_FILE" ]; then
+            echo "::error::未找到授权计算器 zip 压缩包！"
+            exit 1
+          fi
+          echo ":: Found zip package: $ZIP_FILE"
+          
+          # 使用 macOS 原生 ditto 工具完美解压（完整保留 UTF-8 文件名与权限）
+          ditto -x -k "$ZIP_FILE" .
+          
+          # 验证解压产物
+          if [ ! -d "授权计算器-merged/授权计算器.xcodeproj" ]; then
+            echo "::error::解压后未找到 授权计算器-merged/授权计算器.xcodeproj！"
+            ls -la
+            exit 1
+          fi
+          echo ":: Extracted project verified OK"
+
+      - name: build
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+
+          cd 授权计算器-merged
+
+          # 解析 Swift Package Manager 依赖 (PartyUI)
+          echo ":: Resolving package dependencies..."
+          xcodebuild -resolvePackageDependencies -project "授权计算器.xcodeproj"
+
+          echo ":: Building 授权计算器..."
+          xcodebuild \
+            -project "授权计算器.xcodeproj" \
+            -scheme "授权计算器" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            build | tee build.log
+
+          PRODUCTS="build/Build/Products/Release-iphoneos"
+          APP_PATH="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "::error::构建产物中未找到 .app 目录！"
+            exit 1
+          fi
+          echo ":: Built app located at: $APP_PATH"
+
+          # 检查并打印 App 结构与内嵌 Framework
+          echo ":: App bundle contents:"
+          find "$APP_PATH" -maxdepth 2 -print
+
+          # 创建越狱/沙盒逃逸需要的 entitlements.plist (无沙盒权限)
+          printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>com.apple.private.security.no-sandbox</key>\n\t<true/>\n\t<key>platform-application</key>\n\t<true/>\n\t<key>com.apple.private.skip-library-validation</key>\n\t<true/>\n</dict>\n</plist>\n' > entitlements.plist
+
+          # 对内嵌 Frameworks 和 App 执行 Ad-hoc 签名
+          if [ -d "$APP_PATH/Frameworks" ]; then
+            find "$APP_PATH/Frameworks" -mindepth 1 -maxdepth 1 -type d | while read -r fw; do
+              echo ":: Signing framework: $fw"
+              codesign --force --sign - "$fw"
+            done
+          fi
+
+          echo ":: Ad-hoc signing app with no-sandbox entitlements"
+          codesign --force --deep --sign - --entitlements entitlements.plist "$APP_PATH"
+          cp entitlements.plist "$APP_PATH/entitlements.plist"
+          echo ":: entitlements.plist embedded in app bundle"
+
+          # 打包为 IPA
+          rm -rf Payload xianguang.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          ditto -c -k --keepParent Payload xianguang.ipa
+          rm -rf Payload
+
+          # 移动至仓库根目录供后续步骤使用
+          mv xianguang.ipa ../
+          cd ..
+
+      - name: verify ipa
+        run: |
+          set -euo pipefail
+          unzip -t xianguang.ipa
+          unzip -Z1 xianguang.ipa | grep -Eq '^Payload/[^/]+\.app/[^/]+$'
+          shasum -a 256 xianguang.ipa | tee xianguang.ipa.sha256
+          echo ":: xianguang.ipa verified successfully"
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xianguang-unsigned
+          path: |
+            xianguang.ipa
+            xianguang.ipa.sha256
+          if-no-files-found: error
+
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view xianguang-latest >/dev/null 2>&1; then
+            echo ":: Deleting existing xianguang-latest release"
+            gh release delete xianguang-latest --yes --cleanup-tag
+          fi
+          echo ":: Creating new xianguang-latest release"
+          gh release create xianguang-latest xianguang.ipa xianguang.ipa.sha256 \
+            --target "${GITHUB_SHA}" \
+            --title "弦光 (授权计算器) 最新构建" \
+            --notes "由 GitHub Actions 自动编译导出自 commit ${GITHUB_SHA}。包含无签名安装包 xianguang.ipa 与 SHA-256 校验和。"
