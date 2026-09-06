@@ -28,12 +28,16 @@ jobs:
       - name: extract zip
         run: |
           set -euo pipefail
-          ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*.zip' -print -quit)"
+          # 优先使用 v2 zip（含最新版 mond），回退到原版
+          ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*-v2.zip' -print -quit)"
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*.zip' -print -quit)"
+          fi
           if [ -z "$ZIP_FILE" ] || [ ! -f "$ZIP_FILE" ]; then
             echo "::error::未找到授权计算器 zip 压缩包！"
             exit 1
           fi
-          echo ":: Found zip package: $ZIP_FILE"
+          echo ":: Using zip package: $ZIP_FILE"
           
           # 使用 macOS 原生 ditto 工具完美解压（完整保留 UTF-8 文件名与权限）
           ditto -x -k "$ZIP_FILE" .
