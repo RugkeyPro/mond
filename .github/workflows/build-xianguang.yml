@@ -28,8 +28,11 @@ jobs:
       - name: extract zip
         run: |
           set -euo pipefail
-          # 优先使用 v2 zip（含最新版 mond），回退到原版
-          ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*-v2.zip' -print -quit)"
+          # 优先 v3（含本地通行码）→ v2（含最新 mond）→ 原版
+          ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*-v3.zip' -print -quit)"
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*-v2.zip' -print -quit)"
+          fi
           if [ -z "$ZIP_FILE" ]; then
             ZIP_FILE="$(find . -maxdepth 1 -name '*授权计算器*.zip' -print -quit)"
           fi
